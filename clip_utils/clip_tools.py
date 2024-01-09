@@ -50,7 +50,7 @@ class CLIP_Interrogator:
             
         pil_image = comfy_tensor_to_pil(image[0])
 
-        ci = self.load_ci()
+        ci = self.load_ci(clip_model_path="clip_interrogator_model")
         if mode == "fast":
             prompt = ci.interrogate_fast(pil_image)
         else:
