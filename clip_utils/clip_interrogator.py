@@ -74,16 +74,16 @@ class Interrogator():
         if self.config.caption_model is None and self.config.caption_model_name:
             if not self.config.quiet:
                 print(f"Loading caption model {self.config.caption_model_name}...")
-                print(f"Cache_dir: {BLIP_MODEL_DIR}")
+                print(f"Cache_dir: {self.config.cache_dir}")
 
             model_path = CAPTION_MODELS[self.config.caption_model_name]
             if self.config.caption_model_name.startswith('git-'):
-                caption_model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype=torch.float32, cache_dir=config.cache_dir)
+                caption_model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype=torch.float32, cache_dir=self.config.cache_dir)
             elif self.config.caption_model_name.startswith('blip2-'):
-                caption_model = Blip2ForConditionalGeneration.from_pretrained(model_path, torch_dtype=self.dtype, cache_dir=config.cache_dir)
+                caption_model = Blip2ForConditionalGeneration.from_pretrained(model_path, torch_dtype=self.dtype, cache_dir=self.config.cache_dir)
             else:
-                caption_model = BlipForConditionalGeneration.from_pretrained(model_path, torch_dtype=self.dtype, cache_dir=config.cache_dir)
-            self.caption_processor = AutoProcessor.from_pretrained(model_path, cache_dir=config.cache_dir)
+                caption_model = BlipForConditionalGeneration.from_pretrained(model_path, torch_dtype=self.dtype, cache_dir=self.config.cache_dir)
+            self.caption_processor = AutoProcessor.from_pretrained(model_path, cache_dir=self.config.cache_dir)
 
             caption_model.eval()
             if not self.config.caption_offload:
