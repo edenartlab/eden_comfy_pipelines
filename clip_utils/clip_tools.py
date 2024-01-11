@@ -4,34 +4,16 @@ import torch
 import PIL.Image
 from PIL import Image
 import sys, os, time
-from clip_interrogator import Interrogator, Config
+
+# custom version of clip_interrogator which downloads to the ComfyUI models dir:
+from .clip_interrogator import Interrogator, Config
 
 import torch
 import numpy as np
 from PIL import Image
 
-def find_comfy_models_dir():
-    current_path = os.path.abspath(os.path.dirname(os.path.realpath(__file__)))
-
-    while True:
-        # Check if "ComfyUI/models" exists in the current path
-        target_path = os.path.join(current_path, "ComfyUI", "models")
-        if os.path.isdir(target_path):
-            return os.path.abspath(target_path)
-
-        # Move up one directory level
-        new_path = os.path.dirname(current_path)
-        if new_path == current_path:
-            # If the new path is the same, we've reached the root and didn't find the directory
-            break
-        current_path = new_path
-
-    return None
-
-# Make sure we're always downloading BLIP captioning models to the same dir:
-transformers_model_dir = os.path.join(find_comfy_models_dir(), "transformers_cache")
-os.makedirs(transformers_model_dir, exist_ok=True)
-os.environ['TRANSFORMERS_CACHE'] = transformers_model_dir
+sys.path.append('..')
+from general_utils import find_comfy_models_dir
 
 def comfy_tensor_to_pil(tensor):
     # Clone the tensor and detach it from the computation graph
@@ -88,5 +70,6 @@ class CLIP_Interrogator:
     
     def load_ci(self, force_reload=False, clip_model_path=None):
         if self.ci is None or force_reload:
-            ci = Interrogator(Config(clip_model_path=clip_model_path, clip_model_name="ViT-L-14/openai"))
+            BLIP_MODEL_DIR = os.path.abspath(os.path.join(find_comfy_models_dir(), "blip"))
+            ci = Interrogator(Config(clip_model_path=clip_model_path, clip_model_name="ViT-L-14/openai", cache_dir=BLIP_MODEL_DIR))
         return ci
