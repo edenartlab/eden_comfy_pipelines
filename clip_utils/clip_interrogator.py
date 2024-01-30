@@ -34,7 +34,7 @@ class Config:
     clip_preprocess = None
 
     # blip settings
-    caption_max_length: int = 32
+    caption_max_length: int = 64
     caption_model_name: Optional[str] = 'blip-large' # use a key from CAPTION_MODELS or None
     caption_offload: bool = False
     cache_dir: Optional[str] = None
@@ -83,6 +83,8 @@ class Interrogator():
                 caption_model = Blip2ForConditionalGeneration.from_pretrained(model_path, torch_dtype=self.dtype, cache_dir=self.config.cache_dir)
             else:
                 caption_model = BlipForConditionalGeneration.from_pretrained(model_path, torch_dtype=self.dtype, cache_dir=self.config.cache_dir)
+
+            print(f"Loaded caption_model of type {type(caption_model)}")
             self.caption_processor = AutoProcessor.from_pretrained(model_path, cache_dir=self.config.cache_dir)
 
             caption_model.eval()
@@ -186,14 +188,26 @@ class Interrogator():
 
         return best_prompt
 
-    def generate_caption(self, pil_image: Image) -> str:
+    def generate_caption(self, pil_image: Image, input_txt = "") -> str:
         assert self.caption_model is not None, "No caption model loaded."
         self._prepare_caption()
-        inputs = self.caption_processor(images=pil_image, return_tensors="pt").to(self.device)
+
+        if input_txt:
+            inputs = self.caption_processor(images=pil_image, text=input_txt, return_tensors="pt").to(self.device)
+        else:
+            inputs = self.caption_processor(images=pil_image, return_tensors="pt").to(self.device)
+
         if not self.config.caption_model_name.startswith('git-'):
             inputs = inputs.to(self.dtype)
-        tokens = self.caption_model.generate(**inputs, max_new_tokens=self.config.caption_max_length)
-        return self.caption_processor.batch_decode(tokens, skip_special_tokens=True)[0].strip()
+
+        tokens  = self.caption_model.generate(**inputs, max_new_tokens=self.config.caption_max_length + len(input_txt))
+        caption = self.caption_processor.batch_decode(tokens, skip_special_tokens=True)[0].strip()
+
+        print(f"Generated {type(self.caption_model)} caption:")
+        print(caption)
+        print('-------------------------------------')
+
+        return caption
 
     def image_to_features(self, image: Image) -> torch.Tensor:
         self._prepare_clip()
