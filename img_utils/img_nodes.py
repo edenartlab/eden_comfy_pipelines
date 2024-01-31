@@ -26,6 +26,59 @@ import folder_paths
 
 ###########################################################################
 
+import torch
+from torch.cuda.amp import autocast
+
+import psutil
+
+def print_available_memory():
+    memory = psutil.virtual_memory()
+    print(f"Available memory: {memory.available / 1024 / 1024 / 1024:.2f} GB")
+
+
+class LatentTypeConversion:
+    """
+    Allows storing latents in float16 format to save memory, and converting to float32 when needed.
+    """
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "latent": ("LATENT", ),
+                "output_type": (["float16", "float32"], ),
+                "verbose": ("BOOLEAN", {"default": True}),
+            }
+        }
+    
+    RETURN_TYPES = ("LATENT",)
+    FUNCTION = "convert"
+    CATEGORY = "Eden 🌱"
+
+    def convert(self, latent, output_type="float16", verbose=True):
+        if verbose:
+            print_available_memory()
+            print(f"Input latent type: {latent['samples'].dtype}")
+            print(f"Input latent shape: {latent['samples'].shape}")
+            print(f"Input device: {latent['samples'].device}")
+
+        # Ensure the tensor is on the correct device (GPU if available)
+        #device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        #latent["samples"] = latent["samples"].to(device)
+
+        # Use autocast for automatic type conversion in mixed precision settings
+        with autocast():
+            if output_type == "float32" and latent["samples"].dtype == torch.float16:
+                latent["samples"] = latent["samples"].float()
+            elif output_type == "float16" and latent["samples"].dtype == torch.float32:
+                latent["samples"] = latent["samples"].half()
+
+        if verbose:
+            print(f"After conversion, latent type: {latent['samples'].dtype}")
+            print_available_memory()
+
+        return (latent,)
+
+
 
 class VAEDecode_to_folder:
     @classmethod
@@ -262,9 +315,10 @@ class IMG_unpadder:
         return (image,)
     
 
-
-
 class IMG_scaler:
+    """
+    A class to apply mathematical operations to an image.
+    """
     @classmethod
     def INPUT_TYPES(s):
         return {
@@ -284,34 +338,34 @@ class IMG_scaler:
         The math_string is applied to each pixel value.
         '''
 
+        # Ensure the input is a PyTorch tensor
+        if not isinstance(image, torch.Tensor):
+            raise TypeError("The image must be a PyTorch tensor")
+
         input_device = image.device
-        input_dtype = image.dtype
-        
+        input_dtype  = image.dtype
+
+        # Normalize image if needed
         if image.max() > 1:
-            rescaled = True
-            # Normalize the image to a range of 0 to 1
-            normalized_image = image / 255.0
-        else:
-            rescaled = False
-            normalized_image = image
+            image = image.float() / 255.0
 
-        # Apply the mathematical function defined by the string:
-        # Prepare a lambda function from the math_string
-        # Assuming 'x' represents the pixel value in math_string
-        math_func = lambda x: eval(math_string)
+        # Define the mathematical function securely
+        def safe_eval(expr, x):
+            allowed_functions = {"sin": np.sin, "cos": np.cos, "exp": np.exp}  # Extend this as needed
+            return eval(expr, {"__builtins__": None}, allowed_functions)
 
-        # Apply the mathematical function to each pixel
-        transformed_image = torch.from_numpy(np.vectorize(math_func)(normalized_image.cpu().float().numpy()))
+        # Create a vectorized version of the safe_eval function
+        vectorized_func = np.vectorize(lambda x: safe_eval(math_string, x))
 
-        # Clip values to ensure they are within 0 to 1
+        # Apply the function to the numpy version of the image
+        transformed_image = torch.from_numpy(vectorized_func(image.cpu().numpy()))
+
+        # Clip and rescale if necessary
         transformed_image = torch.clamp(transformed_image, 0, 1)
-        
-        if rescaled:
-            # Rescale back to 0-255 and convert to uint8
-            output_image = transformed_image * 255
+        if input_dtype == torch.uint8:
+            transformed_image = (transformed_image * 255).to(torch.uint8)
 
-        # Convert to original device and dtype
-        output_image = output_image.to(input_device, dtype=input_dtype)
+        # Convert back to original device and dtype
+        output_image = transformed_image.to(input_device, dtype=input_dtype)
 
         return (output_image,)
-
