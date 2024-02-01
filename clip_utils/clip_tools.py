@@ -92,7 +92,7 @@ class CLIP_Interrogator:
             # Make sure the directory exists:
             os.makedirs(os.path.dirname(save_prompt_to_txt_file), exist_ok=True)
 
-            with open(save_prompt_to_txt_file, "w") as f:
+            with open(save_prompt_to_txt_file, "w", encoding="utf-8") as f:
                 f.write(prompt)
             print(f"Saved interrogated prompt to {save_prompt_to_txt_file}")
 
