@@ -277,6 +277,42 @@ class IMG_padder:
 
 
     
+class IMG_blender:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "image1": ("IMAGE",),
+                "image2": ("IMAGE",),
+                "image1_weight": ("FLOAT", {"default": 0.5, "min": 0, "max": 1, "step": 0.01}),
+            }
+        }
+
+    RETURN_TYPES = ("IMAGE",)
+    FUNCTION = "blend"
+    CATEGORY = "Eden 🌱"
+
+    def blend(self, image1, image2, image1_weight = 0.5):
+
+        bs1, h1, w1, c1 = image1.shape
+        bs2, h2, w2, c2 = image2.shape
+
+        if bs1 != bs2:
+            raise ValueError("Images must have the same batch size for blending!")
+
+        if h1 != h2 or w1 != w2:
+            # simply crop the larger image to the size of the smaller one:
+            h = min(h1, h2)
+            w = min(w1, w2)
+            image1 = image1[:, :h, :w, :]
+            image2 = image2[:, :h, :w, :]
+
+        blended_image = image1 * image1_weight + image2 * (1 - image1_weight)
+        
+        return (blended_image,)
+
+
+    
 class IMG_unpadder:
     @classmethod
     def INPUT_TYPES(s):
