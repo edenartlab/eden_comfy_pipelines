@@ -6,7 +6,6 @@ from clip_utils.clip_tools import CLIP_Interrogator
 from img_utils.img_nodes import *
 from logic.logic_nodes import *
 
-
 NODE_CLASS_MAPPINGS = {
     "CLIP_Interrogator": CLIP_Interrogator,
     "IMG_padder": IMG_padder,
@@ -17,13 +16,13 @@ NODE_CLASS_MAPPINGS = {
     "VAEDecode_to_folder": VAEDecode_to_folder,
     "SaveImageAdvanced": SaveImageAdvanced,
     "LatentTypeConversion": LatentTypeConversion,
-    "Compare": Compare,
-    "Int": Int,
-    "Float": Float,
-    "Bool": Bool,
-    "String": String,
-    "If ANY execute A else B": IfExecute,
-    "DebugPrint": DebugPrint,
+    "Eden_Compare": Eden_Compare,
+    "Eden_Int": Eden_Int,
+    "Eden_Float": Eden_Float,
+    "Eden_Bool": Eden_Bool,
+    "Eden_String": Eden_String,
+    "If ANY execute A else B": Eden_IfExecute,
+    "Eden_DebugPrint": Eden_DebugPrint,
 
 }
 
@@ -37,13 +36,13 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "VAEDecode_to_folder": "VAEDecode_to_folder",
     "SaveImageAdvanced": "Save Image",
     "LatentTypeConversion": "LatentTypeConversion",
-    "Compare": "Compare",
-    "Int": "Int",
-    "Float": "Float",
-    "Bool": "Bool",
-    "String": "String",
+    "Eden_Compare": "Compare",
+    "Eden_Int": "Int",
+    "Eden_Float": "Float",
+    "Eden_Bool": "Bool",
+    "Eden_String": "String",
     "If ANY execute A else B": "If",
-    "DebugPrint": "DebugPrint",
+    "Eden_DebugPrint": "DebugPrint",
 }
 
 

@@ -24,7 +24,7 @@ class AlwaysEqualProxy(str):
         return False
 
 
-class String:
+class Eden_String:
     @classmethod
     def INPUT_TYPES(s):
         return {
@@ -40,7 +40,7 @@ class String:
         return (value,)
 
 
-class Int:
+class Eden_Int:
     @classmethod
     def INPUT_TYPES(s):
         return {
@@ -56,7 +56,7 @@ class Int:
         return (value,)
 
 
-class Float:
+class Eden_Float:
     @classmethod
     def INPUT_TYPES(s):
         return {
@@ -72,7 +72,7 @@ class Float:
         return (value,)
 
 
-class Bool:
+class Eden_Bool:
     @classmethod
     def INPUT_TYPES(s):
         return {
@@ -88,7 +88,7 @@ class Bool:
         return (value,)
 
 
-class Compare:
+class Eden_Compare:
     """
     This nodes compares the two inputs and outputs the result of the comparison.
     """
@@ -127,7 +127,7 @@ class Compare:
         return (COMPARE_FUNCTIONS[comparison](a, b),)
 
 
-class IfExecute:
+class Eden_IfExecute:
     """
     This node executes IF_TRUE if ANY is True, otherwise it executes IF_FALSE.
     ANY can be any input, IF_TRUE and IF_FALSE can be any output.
@@ -152,7 +152,7 @@ class IfExecute:
         return (IF_TRUE if ANY else IF_FALSE,)
 
 
-class DebugPrint:
+class Eden_DebugPrint:
     """
     This node prints the input to the console.
     """
