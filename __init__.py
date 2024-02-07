@@ -36,13 +36,13 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "VAEDecode_to_folder": "VAEDecode_to_folder",
     "SaveImageAdvanced": "Save Image",
     "LatentTypeConversion": "LatentTypeConversion",
-    "Eden_Compare": "Compare",
-    "Eden_Int": "Int",
-    "Eden_Float": "Float",
-    "Eden_Bool": "Bool",
-    "Eden_String": "String",
-    "If ANY execute A else B": "If",
-    "Eden_DebugPrint": "DebugPrint",
+    "Eden_Compare": "Compare (Eden)",
+    "Eden_Int": "Int (Eden)",
+    "Eden_Float": "Float (Eden)",
+    "Eden_Bool": "Bool (Eden)",
+    "Eden_String": "String (Eden)",
+    "If ANY execute A else B": "If (Eden)",
+    "Eden_DebugPrint": "DebugPrint (Eden)",
 }
 
 
