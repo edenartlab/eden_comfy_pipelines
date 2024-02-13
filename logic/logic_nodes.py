@@ -149,6 +149,8 @@ class Eden_IfExecute:
     CATEGORY = "Eden 🌱/Logic"
 
     def return_based_on_bool(self, ANY, IF_TRUE, IF_FALSE):
+        result_str = "True" if ANY else "False"
+        print(f"Evaluating {type(ANY)}, *** {ANY} *** as {result_str}")
         return (IF_TRUE if ANY else IF_FALSE,)
 
 

@@ -139,4 +139,7 @@ class CLIP_Interrogator:
         # Capitalize the first letter of the sentence
         text = text[0].upper() + text[1:] if text else text
 
+        # convert to utf-8:
+        text = text.encode('utf-8', 'ignore').decode('utf-8')
+
         return text.strip()
