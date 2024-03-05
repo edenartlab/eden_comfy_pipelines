@@ -199,31 +199,66 @@ class SaveImageAdvanced:
 
         return { "ui": { "images": results } }
     
-
-class Filepicker:
+from PIL import Image, ImageOps, ImageSequence
+class LoadRandomImage:
     def __init__(self):
-        self.ci = None
+        self.img_extensions = [".png", ".jpg", ".jpeg", ".bmp", ".webp"]
 
     @classmethod
     def INPUT_TYPES(s):
+        input_dir = folder_paths.get_input_directory()
+        files = [f for f in os.listdir(input_dir) if os.path.isfile(os.path.join(input_dir, f))]
+
         return {
             "required": {
-                "folder": ("STRING",),
-            }
+                    "folder": ("STRING", {"default": "."}),
+                    "n_images": ("INT", {"default": 1, "min": 1, "max": 100}),
+                    "seed": ("INT", {"default": 0, "min": 0, "max": 100000}),
+                }
         }
 
-    RETURN_TYPES = ("STRING",)
-    FUNCTION = "pick_file"
     CATEGORY = "Eden 🌱"
+    RETURN_TYPES = ("IMAGE", "MASK")
+    FUNCTION = "load_image"
 
-    def pick_file(self, folder):
-        files = os.listdir(folder)
-        files = [os.path.join(folder, f) for f in files]
+    def load_image(self, folder, n_images, seed):
+        files = [os.path.join(folder, f) for f in os.listdir(folder)]
         files = [f for f in files if os.path.isfile(f)]
+        files = [f for f in files if os.path.splitext(f)[1].lower() in self.img_extensions]
 
+        random.seed(seed)
         random.shuffle(files)
-        path = files[0]
-        return (path,)
+        image_paths = files[:n_images]
+
+        imgs = [Image.open(image_path) for image_path in image_paths]
+        output_images = []
+        output_masks = []
+        for img in imgs:
+            img = ImageOps.exif_transpose(img)
+            if img.mode == 'I':
+                img = img.point(lambda i: i * (1 / 255))
+            image = img.convert("RGB")
+            image = np.array(image).astype(np.float32) / 255.0
+            image = torch.from_numpy(image)[None,]
+            if 'A' in img.getbands():
+                mask = np.array(img.getchannel('A')).astype(np.float32) / 255.0
+                mask = 1. - torch.from_numpy(mask)
+            else:
+                mask = torch.zeros((64,64), dtype=torch.float32, device="cpu")
+            output_images.append(image)
+            output_masks.append(mask.unsqueeze(0))
+
+        if len(output_images) > 1:
+            output_image = torch.cat(output_images, dim=0)
+            output_mask = torch.cat(output_masks, dim=0)
+        else:
+            output_image = output_images[0]
+            output_mask = output_masks[0]
+
+        return (output_image, output_mask)
+
+
+
 
 
 class IMG_padder:
@@ -360,7 +395,7 @@ class IMG_scaler:
         return {
             "required": {
                 "image": ("IMAGE",),
-                "math_string": ("STRING",),
+                 "math_string": ("STRING", {"default": ""}),
             }
         }
 

@@ -9,7 +9,7 @@ import torch
 
 from dataclasses import dataclass
 from PIL import Image
-from transformers import AutoProcessor, AutoModelForCausalLM, BlipForConditionalGeneration, Blip2ForConditionalGeneration
+from transformers import AutoProcessor, AutoModelForCausalLM, BlipForConditionalGeneration
 from tqdm import tqdm
 from typing import List, Optional
 
@@ -80,6 +80,7 @@ class Interrogator():
             if self.config.caption_model_name.startswith('git-'):
                 caption_model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype=torch.float32, cache_dir=self.config.cache_dir)
             elif self.config.caption_model_name.startswith('blip2-'):
+                from transformers import Blip2ForConditionalGeneration
                 caption_model = Blip2ForConditionalGeneration.from_pretrained(model_path, torch_dtype=self.dtype, cache_dir=self.config.cache_dir)
             else:
                 caption_model = BlipForConditionalGeneration.from_pretrained(model_path, torch_dtype=self.dtype, cache_dir=self.config.cache_dir)
