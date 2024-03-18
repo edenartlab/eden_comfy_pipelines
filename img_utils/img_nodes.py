@@ -2,6 +2,7 @@ import torch
 from PIL import Image
 import sys, os, time
 import torch
+import cv2
 import numpy as np
 import random
 
@@ -198,6 +199,56 @@ class SaveImageAdvanced:
             counter += 1
 
         return { "ui": { "images": results } }
+
+
+
+def round_to_nearest_multiple(number, multiple):
+    return int(multiple * round(number / multiple))
+
+def get_centre_crop(img, aspect_ratio):
+    h, w = np.array(img).shape[:2]
+    if w/h > aspect_ratio:
+        # crop width:
+        new_w = int(h * aspect_ratio)
+        left = (w - new_w) // 2
+        right = (w + new_w) // 2
+        crop = img[:, left:right]
+    else:
+        # crop height:
+        new_h = int(w / aspect_ratio)
+        top = (h - new_h) // 2
+        bottom = (h + new_h) // 2
+        crop = img[top:bottom, :]
+    return crop
+
+def get_uniformly_sized_crops(imgs, target_n_pixels=2048**2):
+    """
+    Given a list of images:
+        - extract the best possible centre crop of same aspect ratio for all images
+        - rescale these crops to have ~target_n_pixels
+        - return resized images
+    """
+
+    assert len(imgs) > 1
+    imgs = [np.array(img) for img in imgs]
+    
+    # Get center crops at same aspect ratio
+    aspect_ratios = [img.shape[1] / img.shape[0] for img in imgs]
+    final_aspect_ratio = np.mean(aspect_ratios)
+    crops = [get_centre_crop(img, final_aspect_ratio) for img in imgs]
+
+    # Compute final w,h using final_aspect_ratio and target_n_pixels:
+    final_h = np.sqrt(target_n_pixels / final_aspect_ratio)
+    final_w = final_h * final_aspect_ratio
+    final_h = round_to_nearest_multiple(final_h, 8)
+    final_w = round_to_nearest_multiple(final_w, 8)
+
+    # Resize images
+    resized_imgs = [cv2.resize(crop, (final_w, final_h), cv2.INTER_CUBIC) for crop in crops]
+    #resized_imgs = [Image.fromarray((img * 255).astype(np.uint8)) for img in resized_imgs]
+    
+    return resized_imgs
+
     
 from PIL import Image, ImageOps, ImageSequence
 class LoadRandomImage:
@@ -218,13 +269,13 @@ class LoadRandomImage:
         }
 
     CATEGORY = "Eden 🌱"
-    RETURN_TYPES = ("IMAGE", "MASK")
+    RETURN_TYPES = ("IMAGE",)
     FUNCTION = "load_image"
 
     def load_image(self, folder, n_images, seed):
         files = [os.path.join(folder, f) for f in os.listdir(folder)]
         files = [f for f in files if os.path.isfile(f)]
-        files = [f for f in files if os.path.splitext(f)[1].lower() in self.img_extensions]
+        files = sorted([f for f in files if os.path.splitext(f)[1].lower() in self.img_extensions])
 
         random.seed(seed)
         random.shuffle(files)
@@ -232,30 +283,22 @@ class LoadRandomImage:
 
         imgs = [Image.open(image_path) for image_path in image_paths]
         output_images = []
-        output_masks = []
         for img in imgs:
             img = ImageOps.exif_transpose(img)
             if img.mode == 'I':
                 img = img.point(lambda i: i * (1 / 255))
             image = img.convert("RGB")
             image = np.array(image).astype(np.float32) / 255.0
-            image = torch.from_numpy(image)[None,]
-            if 'A' in img.getbands():
-                mask = np.array(img.getchannel('A')).astype(np.float32) / 255.0
-                mask = 1. - torch.from_numpy(mask)
-            else:
-                mask = torch.zeros((64,64), dtype=torch.float32, device="cpu")
             output_images.append(image)
-            output_masks.append(mask.unsqueeze(0))
 
         if len(output_images) > 1:
+            output_images = get_uniformly_sized_crops(output_images)
+            output_images = [torch.from_numpy(output_image)[None,] for output_image in output_images]
             output_image = torch.cat(output_images, dim=0)
-            output_mask = torch.cat(output_masks, dim=0)
         else:
-            output_image = output_images[0]
-            output_mask = output_masks[0]
+            output_image = torch.from_numpy(output_images[0])[None,]
 
-        return (output_image, output_mask)
+        return (output_image,)
 
 
 
@@ -440,3 +483,70 @@ class IMG_scaler:
         output_image = transformed_image.to(input_device, dtype=input_dtype)
 
         return (output_image,)
+
+
+def to_grayscale(images, keep_dims=True):
+    """
+    Convert a batch of RGB images to grayscale.
+    
+    Args:
+        images (torch.Tensor): Input tensor of shape (batch_size, height, width, channels)
+                                with channels = 3 for RGB images.
+    
+    Returns:
+        torch.Tensor: Grayscale images of shape (batch_size, height, width, 1) or (batch_size, height, width, 3) if keep_dims=True.
+    """
+    if images.shape[-1] != 3:
+        raise ValueError("Input images must have 3 channels (RGB).")
+
+    # Define the weights for the RGB channels to convert to grayscale.
+    # These are the standard weights used in the ITU-R BT.601 standard.
+    weights = torch.tensor([0.2989, 0.5870, 0.1140], device=images.device)
+
+    # Permute the dimensions to (batch_size, channels, height, width)
+    # for easier matrix multiplication.
+    images_permuted = images.permute(0, 3, 1, 2)
+
+    # Perform the weighted sum along the channel dimension (dim=1)
+    grayscale_images = torch.tensordot(images_permuted, weights, dims=([1], [0]))
+
+    # Add an extra dimension for the channel at the end.
+    grayscale_images = grayscale_images.unsqueeze(-1)
+
+    if keep_dims:
+        # Permute the dimensions back to (batch_size, height, width, 1)
+        #grayscale_images = grayscale_images.permute(0, 2, 3, 1)
+        # Repeat the grayscale image 3 times to match the original dimensions.
+        grayscale_images = grayscale_images.repeat(1, 1, 1, 3)
+
+
+    return grayscale_images
+
+
+class ConvertToGrayscale:
+    def __init__(self):
+        self.ci = None
+
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "image": ("IMAGE",),
+            }
+        }
+
+    RETURN_TYPES = ("IMAGE",)
+    FUNCTION = "convert_to_grayscale"
+    CATEGORY = "Eden 🌱"
+
+    def convert_to_grayscale(self, image):
+        # Input is a torch tensor with shape (bs, c, h, w)
+        bs, h, w, c = image.shape
+        if c == 1:
+            pass
+        elif c == 3:
+            # Convert the image to grayscale
+            image = to_grayscale(image)
+        else:
+            raise ValueError(f"Input image must have 1 or 3 channels, but got {c} channels. Image shape = {image.shape}")
+        return (image,)
