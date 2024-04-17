@@ -396,6 +396,30 @@ class HIST_matcher_depracted:
 
 
 
+class IMG_resolution_multiple_of:
+    def __init__(self):
+        self.ci = None
+
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "image": ("IMAGE",),
+                "multiple_of": ("INT", {"default": 8, "min": 2, "max": 264}),
+            }
+        }
+
+    RETURN_TYPES = ("IMAGE",)
+    FUNCTION = "pad"
+    CATEGORY = "Eden 🌱"
+
+    def pad(self, image, multiple_of):
+        bs, h, w, c = image.shape
+        # Crop the image to the nearest multiple of 8:
+        h = h - h % multiple_of
+        w = w - w % multiple_of
+        image = image[:, :h, :w, :]
+        return (image,)
 
 
 
