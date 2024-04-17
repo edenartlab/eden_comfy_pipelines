@@ -4,7 +4,9 @@ sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
 from clip_utils.clip_tools import CLIP_Interrogator  
 from img_utils.img_nodes import *
+from img_utils.hist_matcher import HistogramMatching
 from logic.logic_nodes import *
+
 
 NODE_CLASS_MAPPINGS = {
     "CLIP_Interrogator": CLIP_Interrogator,
@@ -15,6 +17,7 @@ NODE_CLASS_MAPPINGS = {
     "ConvertToGrayscale": ConvertToGrayscale,
     "LoadRandomImage": LoadRandomImage,
     "VAEDecode_to_folder": VAEDecode_to_folder,
+    "HistogramMatching": HistogramMatching,
     "SaveImageAdvanced": SaveImageAdvanced,
     "LatentTypeConversion": LatentTypeConversion,
     "Eden_Compare": Eden_Compare,
@@ -33,6 +36,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "IMG_unpadder": "IMG_Unpadder",
     "IMG_scaler": "IMG_Scaler",
     "IMG_blender": "IMG_blender",
+    "HistogramMatching": "HistogramMatching",
     "ConvertToGrayscale": "ConvertToGrayscale",
     "LoadRandomImage": "LoadRandomImage",
     "VAEDecode_to_folder": "VAEDecode_to_folder",
