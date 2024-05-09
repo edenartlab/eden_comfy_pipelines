@@ -41,9 +41,9 @@ def create_animation(width, height, total_frames, num_colors, bands_visible_per_
 
 if __name__ == "__main__":
     width, height = 500, 500  # Canvas size
-    total_frames  = 150  # Total number of frames in the animation
-    num_colors    = 4  # Number of discrete colors
-    bands_visible_per_frame = 1.25  # Adjust the number of visible bands per frame
-    angle = 90 # Rotation angle
+    total_frames  = 320  # Total number of frames in the animation
+    num_colors    = 6  # Number of discrete colors
+    bands_visible_per_frame = 1.0  # Adjust the number of visible bands per frame
+    angle = -40 # Rotation angle
     output_file = f'color_transition_{num_colors}_angle_{angle}.mp4'  # Output file name
     create_animation(width, height, total_frames, num_colors, bands_visible_per_frame, angle, output_file)

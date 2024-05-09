@@ -5,7 +5,7 @@ import torch
 import cv2
 import numpy as np
 import random
-
+import gc
 import torch
 from torchvision import transforms
 import imghdr
@@ -178,6 +178,11 @@ class MaskFromRGB:
                 masks_feathered[i] = mask_feathered.squeeze()
             
             masks = masks_feathered.view(n_imgs, n_colors, h, w).to("cpu")
+            gc.collect()
+            torch.cuda.empty_cache()
+
+        # convert masks to float16 to save memory:
+        masks = masks.half()
 
         return masks[:, 0], masks[:, 1], masks[:, 2], masks[:, 3], masks[:, 4], masks[:, 5], masks[:, 6], masks[:, 7]
 
