@@ -5,8 +5,10 @@ import torch
 import cv2
 import numpy as np
 import random
+
 import torch
 from torchvision import transforms
+import imghdr
 
 ###########################################################################
 
@@ -410,7 +412,8 @@ class LoadRandomImage:
     def load_image(self, folder, n_images, seed, sort):
         files = [os.path.join(folder, f) for f in os.listdir(folder)]
         files = [f for f in files if os.path.isfile(f)]
-        files = sorted([f for f in files if os.path.splitext(f)[1].lower() in self.img_extensions])
+        #files = sorted([f for f in files if os.path.splitext(f)[1].lower() in self.img_extensions])
+        files = [f for f in files if imghdr.what(f)]
 
         random.seed(seed)
         random.shuffle(files)
