@@ -28,6 +28,8 @@ NODE_CLASS_MAPPINGS = {
     "Eden_String": Eden_String,
     "If ANY execute A else B": Eden_IfExecute,
     "Eden_DebugPrint": Eden_DebugPrint,
+    "MaskFromRGB": MaskFromRGB,
+    "MaskFromRGB_KMeans": MaskFromRGB_KMeans
 
 }
 
@@ -51,6 +53,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "Eden_String": "String (Eden)",
     "If ANY execute A else B": "If (Eden)",
     "Eden_DebugPrint": "DebugPrint (Eden)",
+    "MaskFromRGB": "MaskFromRGB",
+    "MaskFromRGB_KMeans": "MaskFromRGB_KMeans"
 }
 
 
