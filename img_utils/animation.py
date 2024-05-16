@@ -1,6 +1,7 @@
 import numpy as np
-import imageio
-from moviepy.editor import ImageSequenceClip
+import os
+import torch
+import cv2
 from skimage.color import lab2rgb
 
 class Animation:
@@ -114,24 +115,80 @@ class Animation:
         frame_rgb = (frame_rgb * 255).astype(np.uint8)
         return frame_rgb
 
-    def create_animation(self, output_file):
+    def create_animation(self):
         frames = []
         for frame_number in range(self.total_frames):
             frame = self.generate_frame(frame_number)
             frames.append(frame)
 
-        clip = ImageSequenceClip(frames, fps=20)
-        clip.write_videofile(output_file, codec='libx264')
+        return frames
+
+    def save(self, frames, output_file, fps=20):
+        os.makedirs(os.path.dirname(output_file), exist_ok=True)
+        
+        height, width, layers = frames[0].shape
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # Codec for .mp4 file
+        video = cv2.VideoWriter(output_file, fourcc, fps, (width, height))
+
+        for frame in frames:
+            video.write(frame)
+
+        video.release()
+
+
+class Animation_RGB_Mask:
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "total_frames": ("INT", {"default": 64, "min": 1}),
+                "num_colors": ("INT", {"default": 3, "min": 1}),
+                "bands_visible_per_frame": ("FLOAT", {"default": 1.0, "min": 0.1}),
+                "angle": ("FLOAT", {"default": 0, "min": 0, "max": 360}),
+                "mode": (["panning_rectangles", "concentric_circles", "rotating_segments", "vertical_stripes", "horizontal_stripes"], ),
+                "width": ("INT", {"default": 512, "min": 24}),
+                "height": ("INT", {"default": 512, "min": 24}),
+                "invert_motion": ("BOOLEAN", {"default": False}),
+            }
+        }
+
+    CATEGORY = "Eden 🌱"
+    RETURN_TYPES = ("IMAGE",)
+    FUNCTION = "generate_animation"
+
+    def generate_animation(self, total_frames, num_colors, bands_visible_per_frame, angle, mode, width, height, invert_motion):
+        mode = "concentric_circles"
+
+        animation = Animation(width, height, total_frames, num_colors, bands_visible_per_frame, angle, mode)
+        animation_frames = animation.create_animation()
+
+        # Convert the frames to a stack of pytorch tensors:
+        animation_frames = np.stack(animation_frames)
+        animation_frames = animation_frames.astype(np.float32) / 255.0
+
+        # Convert to torch cpu:
+        animation_frames = torch.from_numpy(animation_frames).cpu()
+
+        if invert_motion:
+            animation_frames = animation_frames.flip(0)
+
+        return (animation_frames,)
 
 if __name__ == "__main__":
     width, height = 500, 500  # Canvas size
-    total_frames  = 320  # Total number of frames in the animation
-    num_colors    = 6  # Number of discrete colors
+    total_frames  = 64  # Total number of frames in the animation
+    num_colors    = 3  # Number of discrete colors
     bands_visible_per_frame = 1.0  # Adjust the number of visible bands per frame
     angle = 90  # Rotation angle
 
     # Create animations with different modes
-    for mode in ["panning_rectangles", "concentric_circles", "rotating_segments", "vertical_stripes", "horizontal_stripes"]:
-        output_file = f'color_transition_{num_colors}_angle_{angle}_{mode}.mp4'
-        animation = Animation(width, height, total_frames, num_colors, bands_visible_per_frame, angle, mode)
-        animation.create_animation(output_file)
+    #for mode in ["panning_rectangles", "concentric_circles", "rotating_segments", "vertical_stripes", "horizontal_stripes"]:
+    for mode in ["concentric_circles"]:
+        output_file = f'animation_videos/{mode}_{num_colors}_colors_angle_{angle}.mp4'
+        animator = Animation(width, height, total_frames, num_colors, bands_visible_per_frame, angle, mode)
+        animation_frames = animator.create_animation()
+
+        # save the animation to a file:
+        animator.save(animation_frames, output_file)
+

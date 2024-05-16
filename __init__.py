@@ -6,6 +6,7 @@ from clip_utils.clip_tools import CLIP_Interrogator
 from img_utils.img_nodes import *
 from img_utils.hist_matcher import HistogramMatching
 from logic.logic_nodes import *
+from img_utils.animation import Animation_RGB_Mask
 
 
 NODE_CLASS_MAPPINGS = {
@@ -31,6 +32,7 @@ NODE_CLASS_MAPPINGS = {
     "MaskFromRGB": MaskFromRGB,
     "MaskFromRGB_KMeans": MaskFromRGB_KMeans,
     "GetRandomFile": GetRandomFile,
+    "Animation_RGB_Mask": Animation_RGB_Mask,
 
 }
 
@@ -57,6 +59,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "MaskFromRGB": "MaskFromRGB",
     "MaskFromRGB_KMeans": "MaskFromRGB_KMeans",
     "GetRandomFile": "GetRandomFile",
+    "Animation_RGB_Mask": "Animation_RGB_Mask",
 }
 
 
