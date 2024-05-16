@@ -29,7 +29,8 @@ NODE_CLASS_MAPPINGS = {
     "If ANY execute A else B": Eden_IfExecute,
     "Eden_DebugPrint": Eden_DebugPrint,
     "MaskFromRGB": MaskFromRGB,
-    "MaskFromRGB_KMeans": MaskFromRGB_KMeans
+    "MaskFromRGB_KMeans": MaskFromRGB_KMeans,
+    "GetRandomFile": GetRandomFile,
 
 }
 
@@ -54,7 +55,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "If ANY execute A else B": "If (Eden)",
     "Eden_DebugPrint": "DebugPrint (Eden)",
     "MaskFromRGB": "MaskFromRGB",
-    "MaskFromRGB_KMeans": "MaskFromRGB_KMeans"
+    "MaskFromRGB_KMeans": "MaskFromRGB_KMeans",
+    "GetRandomFile": "GetRandomFile",
 }
 
 

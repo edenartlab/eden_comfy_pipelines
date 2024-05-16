@@ -195,8 +195,9 @@ class MaskFromRGB_KMeans:
         return {
             "required": {
                 "image": ("IMAGE", ),
-                "n_clusters": ("INT", {"default": 6, "min": 2, "max": 10}),
-                "feathering": ("FLOAT", { "default": 0.0, "min": 0.0, "max": 500.0, "step": 0.1 }),
+                "n_color_clusters": ("INT", {"default": 6, "min": 2, "max": 10}),
+                "clustering_resolution": ("INT", {"default": 256, "min": 32, "max": 1024}),
+                "feathering_fraction": ("FLOAT", { "default": 0.05, "min": 0.0, "max": 0.5, "step": 0.01 }),
             }
         }
 
@@ -206,19 +207,29 @@ class MaskFromRGB_KMeans:
     CATEGORY = "Eden 🌱"
 
     @torch.no_grad()
-    def execute(self, image, n_clusters, feathering):
+    def execute(self, image, n_color_clusters, clustering_resolution, feathering_fraction):
         # Assuming you have your batch of PyTorch image tensors called 'image_batch'
         # Shape of image_batch: [n, h, w, 3]
         image = image.cuda()
-
         lab_images = torch.stack([rgb_to_lab(img) for img in image])
+        n, h, w, _ = lab_images.shape
+
+        # bring channel dim to second position:
+        lab_images = lab_images.permute(0, 3, 1, 2)
+
+        # Make sure to maintain aspect ratio:
+        h_target, w_target = clustering_resolution, int(clustering_resolution * w / h)
+        lab_images = F.interpolate(lab_images, size=[h_target, w_target], mode='bicubic', align_corners=False)
+        # bring channel dim back to last position:
+        lab_images = lab_images.permute(0, 2, 3, 1)
+
         # Reshape images to [n*w*h, 3] for k-means clustering
         n, h, w, _ = lab_images.shape
         lab_images_reshaped = lab_images.view(n*w*h, 3)
 
         # Apply KMeans clustering
         print("Applying KMeans clustering to find masking colors...")
-        kmeans = KMeans(n_clusters=6, random_state=42)
+        kmeans = KMeans(n_clusters=n_color_clusters, random_state=42)
         cluster_labels = kmeans.fit_predict(lab_images_reshaped.cpu().numpy())
         cluster_labels = torch.from_numpy(cluster_labels).to("cpu").view(n, h, w)
 
@@ -226,14 +237,17 @@ class MaskFromRGB_KMeans:
         masks = torch.zeros(n, 8, h, w)
 
         for i in range(n):
-            for j in range(n_clusters):
+            for j in range(n_color_clusters):
                 masks[i, j] = (cluster_labels[i] == j).float()
 
-        if feathering > 0:
+        if feathering_fraction > 0:
             masks = masks.to("cuda")
             n_imgs, n_colors, h, w = masks.shape
             batch_size = n_imgs * n_colors
             masks = masks.view(batch_size, h, w)
+
+            feathering = int(feathering_fraction * (w+h)/2)
+            feathering = feathering // 2 * 2
 
             kernel = gaussian_kernel_2d(feathering).to(masks.device)
 
@@ -247,6 +261,9 @@ class MaskFromRGB_KMeans:
                 masks_feathered[i] = mask_feathered.squeeze()
             
             masks = masks_feathered.view(n_imgs, n_colors, h, w).to("cpu")
+
+        # Upscale masks to original resolution:
+        masks = F.interpolate(masks, size=(image.shape[1], image.shape[2]), mode='bicubic', align_corners=False)
 
         return masks[:, 0], masks[:, 1], masks[:, 2], masks[:, 3], masks[:, 4], masks[:, 5], masks[:, 6], masks[:, 7]
 
@@ -446,6 +463,29 @@ class LoadRandomImage:
 
         return (output_image,)
 
+
+class GetRandomFile:
+
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                    "folder": ("STRING", {"default": "."}),
+                    "seed": ("INT", {"default": 0, "min": 0, "max": 100000}),
+                }
+        }
+
+    CATEGORY = "Eden 🌱"
+    RETURN_TYPES = ("STRING",)
+    FUNCTION = "get_path"
+
+    def get_path(self, folder, seed):
+        files = [os.path.join(folder, f) for f in os.listdir(folder)]
+        files = [f for f in files if os.path.isfile(f)]
+
+        random.seed(seed)
+        path = random.choice(files)
+        return (path,)
 
 
 
