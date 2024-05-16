@@ -154,12 +154,12 @@ class Animation_RGB_Mask:
         }
 
     CATEGORY = "Eden 🌱"
-    RETURN_TYPES = ("IMAGE",)
+    RETURN_TYPES = ("IMAGE","INT","INT","INT",)
+    RETURN_NAMES = ("IMAGE","num_colors","width","height",)
     FUNCTION = "generate_animation"
 
     def generate_animation(self, total_frames, num_colors, bands_visible_per_frame, angle, mode, width, height, invert_motion):
-        mode = "concentric_circles"
-
+        
         animation = Animation(width, height, total_frames, num_colors, bands_visible_per_frame, angle, mode)
         animation_frames = animation.create_animation()
 
@@ -173,7 +173,7 @@ class Animation_RGB_Mask:
         if invert_motion:
             animation_frames = animation_frames.flip(0)
 
-        return (animation_frames,)
+        return animation_frames,num_colors,width,height
 
 if __name__ == "__main__":
     width, height = 500, 500  # Canvas size

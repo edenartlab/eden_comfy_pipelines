@@ -455,7 +455,7 @@ class LoadRandomImage:
             output_images.append(image)
 
         if len(output_images) > 1:
-            output_images = get_uniformly_sized_crops(output_images)
+            output_images = get_uniformly_sized_crops(output_images, target_n_pixels=1024**2)
             output_images = [torch.from_numpy(output_image)[None,] for output_image in output_images]
             output_image = torch.cat(output_images, dim=0)
         else:
