@@ -144,7 +144,7 @@ class Animation_RGB_Mask:
             "required": {
                 "total_frames": ("INT", {"default": 64, "min": 1}),
                 "num_colors": ("INT", {"default": 3, "min": 1}),
-                "bands_visible_per_frame": ("FLOAT", {"default": 1.0, "min": 0.1}),
+                "bands_visible_per_frame": ("FLOAT", {"default": 1.0, "min": 0.1, "step": 0.01}),
                 "angle": ("FLOAT", {"default": 0, "min": 0, "max": 360}),
                 "mode": (["panning_rectangles", "concentric_circles", "rotating_segments", "vertical_stripes", "horizontal_stripes"], ),
                 "width": ("INT", {"default": 512, "min": 24}),
@@ -159,7 +159,7 @@ class Animation_RGB_Mask:
     FUNCTION = "generate_animation"
 
     def generate_animation(self, total_frames, num_colors, bands_visible_per_frame, angle, mode, width, height, invert_motion):
-        
+
         animation = Animation(width, height, total_frames, num_colors, bands_visible_per_frame, angle, mode)
         animation_frames = animation.create_animation()
 
