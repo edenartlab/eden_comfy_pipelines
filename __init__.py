@@ -8,8 +8,8 @@ from img_utils.gpt_nodes import *
 from img_utils.hist_matcher import HistogramMatching
 from logic.logic_nodes import *
 from img_utils.animation import Animation_RGB_Mask
-from ip_adapter_utils.random_rotate import IPAdapterRandomRotateEmbeds
 from eden_utils.lora_utils import Eden_Lora_Loader
+from ip_adapter_utils.random_rotate import IPAdapterRandomRotateEmbeds, SaveExplorationState
 
 NODE_CLASS_MAPPINGS = {
     "CLIP_Interrogator": CLIP_Interrogator,
@@ -37,6 +37,7 @@ NODE_CLASS_MAPPINGS = {
     "Animation_RGB_Mask": Animation_RGB_Mask,
     "ImageDescriptionNode": ImageDescriptionNode,
     "IPAdapterRandomRotateEmbeds": IPAdapterRandomRotateEmbeds,
+    "SaveExplorationState": SaveExplorationState,
     "Eden_Lora_Loader": Eden_Lora_Loader
 }
 

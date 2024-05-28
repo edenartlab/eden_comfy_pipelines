@@ -1,4 +1,6 @@
 import torch
+from .exploration_state import ExplorationState
+import os
 
 def small_random_rotation(x, epsilon=1e-4):
     input_dtype = x.dtype
@@ -41,12 +43,17 @@ class IPAdapterRandomRotateEmbeds:
                 "pos_embed": ("EMBEDS", ),
                 "latent": ("LATENT", ),
                 "num_samples": ("INT", {"default": 4, "min": 1}),
-                "noise_scale": ("FLOAT", {"default": 1e-2}),
+                "noise_scale": ("FLOAT", {"default": 1e-2, }),
+                
+            },
+            "optional": {
+                "exploration_state_filename": ("STRING", {"default": "eden_exploration_state.pth"}),
+                "load_exploration_state": ("BOOl    ", {"default": True, }),
             }
         }
 
     RETURN_TYPES = ("EMBEDS","LATENT")
-    RETURN_NAMES = ("pos_embeds",)
+    RETURN_NAMES = ("pos_embeds","latent_batch")
     FUNCTION = "run"
 
     CATEGORY = "Eden 🌱"
@@ -57,12 +64,25 @@ class IPAdapterRandomRotateEmbeds:
         latent: torch.tensor,
         num_samples: int = 4, 
         noise_scale: float = 1e-2,
+        exploration_state_filename: torch.tensor = None,
+        load_exploration_state = True
     ):
-        pos_embed = random_rotate_embeds(
-            embeds = pos_embed,
-            num_samples=num_samples,
-            noise_scale=noise_scale
-        )
+        if os.path.exists(exploration_state_filename) and load_exploration_state == True:
+            print(f"Loading ExplorationState: {exploration_state_filename}")
+            pos_embed = ExplorationState.from_file(
+                filename = exploration_state_filename
+            ).sample_embed
+            new_pos_embeds = random_rotate_embeds(
+                embeds = pos_embed,
+                num_samples=num_samples,
+                noise_scale=noise_scale
+            )
+        else:
+            new_pos_embeds = random_rotate_embeds(
+                embeds = pos_embed,
+                num_samples=num_samples,
+                noise_scale=noise_scale
+            )
 
         """
         The caveat right now is that it supports a latent batch size of 1 only
@@ -80,8 +100,35 @@ class IPAdapterRandomRotateEmbeds:
         latent = {
             "samples": latent_tensor
         }
-        return (pos_embed, latent)
 
-# NODE_CLASS_MAPPINGS = {
-#     "IPAdapterRandomRotateEmbeds": IPAdapterRandomRotateEmbeds
-# }
+        return (new_pos_embeds, latent)
+
+
+class SaveExplorationState:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "pos_embed": ("EMBEDS", ),
+                "filename": ("STRING", {"default": "eden_exploration_state.pth"}),
+            }
+        }
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("filename",)
+    FUNCTION = "run"
+
+    CATEGORY = "Eden 🌱"
+
+    def run(
+        self, 
+        pos_embed: str,
+        filename: str,
+    ):
+
+        exploration_state = ExplorationState(
+            sample_embed=pos_embed,
+        )
+        exploration_state.save(filename)
+        print(f"Saved ExplorationState: {filename}")
+        return (filename,)
