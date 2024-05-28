@@ -2,7 +2,6 @@ import os
 import json
 import torch
 import numpy as np
-from PIL import image
 import re
 
 def replace_in_string(s, replacements):
