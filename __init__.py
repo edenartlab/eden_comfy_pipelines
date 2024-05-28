@@ -8,7 +8,7 @@ from img_utils.gpt_nodes import *
 from img_utils.hist_matcher import HistogramMatching
 from logic.logic_nodes import *
 from img_utils.animation import Animation_RGB_Mask
-from ip_adapter_utils.random_rotate import IPAdapterRandomRotateEmbeds
+from ip_adapter_utils.random_rotate import IPAdapterRandomRotateEmbeds, SaveExplorationState
 
 
 NODE_CLASS_MAPPINGS = {
@@ -36,7 +36,8 @@ NODE_CLASS_MAPPINGS = {
     "GetRandomFile": GetRandomFile,
     "Animation_RGB_Mask": Animation_RGB_Mask,
     "ImageDescriptionNode": ImageDescriptionNode,
-    "IPAdapterRandomRotateEmbeds": IPAdapterRandomRotateEmbeds
+    "IPAdapterRandomRotateEmbeds": IPAdapterRandomRotateEmbeds,
+    "SaveExplorationState": SaveExplorationState
 }
 
 """
