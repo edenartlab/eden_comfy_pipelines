@@ -424,6 +424,7 @@ class LoadRandomImage:
                     "n_images": ("INT", {"default": 1, "min": 1, "max": 100}),
                     "seed": ("INT", {"default": 0, "min": 0, "max": 100000}),
                     "sort": ("BOOLEAN", {"default": False}),
+                    "loop_sequence": ("BOOLEAN", {"default": False}),
                 }
         }
 
@@ -431,14 +432,17 @@ class LoadRandomImage:
     RETURN_TYPES = ("IMAGE",)
     FUNCTION = "load_image"
 
-    def load_image(self, folder, n_images, seed, sort):
+    def load_image(self, folder, n_images, seed, sort, loop_sequence):
         files = [os.path.join(folder, f) for f in os.listdir(folder)]
         files = [f for f in files if os.path.isfile(f)]
-        #files = sorted([f for f in files if os.path.splitext(f)[1].lower() in self.img_extensions])
+        # filter using file extensions:
+        files = [f for f in files if any([f.endswith(ext) for ext in self.img_extensions])]
+        # filter using image headers:
         files = [f for f in files if imghdr.what(f)]
 
         random.seed(seed)
         random.shuffle(files)
+
         image_paths = files[:n_images]
 
         if sort:
@@ -453,6 +457,10 @@ class LoadRandomImage:
             image = img.convert("RGB")
             image = np.array(image).astype(np.float32) / 255.0
             output_images.append(image)
+
+        if loop_sequence:
+            # Make sure the last image is the same as the first image:
+            output_images.append(output_images[0])
 
         if len(output_images) > 1:
             output_images = get_uniformly_sized_crops(output_images, target_n_pixels=1024**2)
