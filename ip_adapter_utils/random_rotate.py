@@ -1,11 +1,16 @@
 import torch
 from .exploration_state import ExplorationState
 import os
+import time
 
 def small_random_rotation(x, epsilon=1e-4):
     input_dtype = x.dtype
     # x shape is expected to be [1, 1, 1280]
     dim = x.shape[-1]
+
+    seed = int(time.time() * 1e6) % 2**32
+    torch.manual_seed(seed)
+
     # Generate a random skew-symmetric matrix
     A = torch.randn((dim, dim), device=x.device)
     A = (A - A.t()) / 2  # Making A skew-symmetric
@@ -44,12 +49,8 @@ class IPAdapterRandomRotateEmbeds:
                 "latent": ("LATENT", ),
                 "num_samples": ("INT", {"default": 4, "min": 1}),
                 "seed": ("INT",{"default": 4}),
-                "noise_scale": ("FLOAT", {"default": 1e-2, }),
-                
-            },
-            "optional": {
-                "exploration_state_filename": ("STRING", {"default": "eden_exploration_state.pth"}),
-                "load_exploration_state": ("BOOl    ", {"default": True, }),
+                "noise_scale": ("FLOAT", {"default": 1e-2, "min": 0.0, "max": 0.5, "step": 0.01}),
+                "exploration_state_filename": ("STRING", {"default": "eden_exploration_state.pth"})
             }
         }
 
@@ -66,11 +67,10 @@ class IPAdapterRandomRotateEmbeds:
         seed: int,
         num_samples: int = 4, 
         noise_scale: float = 1e-2,
-        exploration_state_filename: torch.tensor = None,
-        load_exploration_state = True
+        exploration_state_filename: torch.tensor = None
     ):
         print(f"Fake seed to make this node run every time: {seed}")
-        if os.path.exists(exploration_state_filename) and load_exploration_state == True:
+        if os.path.exists(exploration_state_filename):
             print(f"Loading ExplorationState: {exploration_state_filename}")
             pos_embed = ExplorationState.from_file(
                 filename = exploration_state_filename
@@ -81,6 +81,7 @@ class IPAdapterRandomRotateEmbeds:
                 noise_scale=noise_scale
             )
         else:
+            print("No ExplorationState found. Using the input pos_embeds")
             new_pos_embeds = random_rotate_embeds(
                 embeds = pos_embed,
                 num_samples=num_samples,
@@ -133,5 +134,6 @@ class SaveExplorationState:
             sample_embed=pos_embed,
         )
         exploration_state.save(filename)
+        print("-----------------------------------")
         print(f"Saved ExplorationState: {filename}")
         return (filename,)
