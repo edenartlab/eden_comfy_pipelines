@@ -10,6 +10,7 @@ from logic.logic_nodes import *
 from img_utils.animation import Animation_RGB_Mask
 from eden_utils.lora_utils import Eden_Lora_Loader
 from ip_adapter_utils.random_rotate import IPAdapterRandomRotateEmbeds, SaveExplorationState
+from video_utils.video_interpolation import VideoFrameSelector
 
 NODE_CLASS_MAPPINGS = {
     "CLIP_Interrogator": CLIP_Interrogator,
@@ -38,36 +39,7 @@ NODE_CLASS_MAPPINGS = {
     "ImageDescriptionNode": ImageDescriptionNode,
     "IPAdapterRandomRotateEmbeds": IPAdapterRandomRotateEmbeds,
     "SaveExplorationState": SaveExplorationState,
-    "Eden_Lora_Loader": Eden_Lora_Loader
+    "Eden_Lora_Loader": Eden_Lora_Loader,
+    "VideoFrameSelector": VideoFrameSelector
 }
-
-"""
-NODE_DISPLAY_NAME_MAPPINGS = {
-    "CLIP_Interrogator": "CLIP_Interrogator",
-    "IMG_padder": "IMG_Padder",
-    "IMG_unpadder": "IMG_Unpadder",
-    "IMG_scaler": "IMG_Scaler",
-    "IMG_blender": "IMG_blender",
-    "HistogramMatching": "HistogramMatching",
-    "ConvertToGrayscale": "ConvertToGrayscale",
-    "LoadRandomImage": "LoadRandomImage",
-    "VAEDecode_to_folder": "VAEDecode_to_folder",
-    "SaveImageAdvanced": "Save Image",
-    "LatentTypeConversion": "LatentTypeConversion",
-    "IMG_resolution_multiple_of": "IMG_resolution_multiple_of",
-    "Eden_Compare": "Compare (Eden)",
-    "Eden_Int": "Int (Eden)",
-    "Eden_Float": "Float (Eden)",
-    "Eden_Bool": "Bool (Eden)",
-    "Eden_String": "String (Eden)",
-    "If ANY execute A else B": "If (Eden)",
-    "Eden_DebugPrint": "DebugPrint (Eden)",
-    "MaskFromRGB": "MaskFromRGB",
-    "MaskFromRGB_KMeans": "MaskFromRGB_KMeans",
-    "GetRandomFile": "GetRandomFile",
-    "Animation_RGB_Mask": "Animation_RGB_Mask",
-}
-"""
-
-
 
