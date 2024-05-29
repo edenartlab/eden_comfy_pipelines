@@ -1,23 +1,25 @@
 import numpy as np
-import json
+import matplotlib.pyplot as plt
 
 def compute_sampling_indices(total_n_frames, target_n_frames, verbose=0):
     """
-    This function computes the optimal subset of frames to sample from a video and also computes
-    a cost that represents the corresponding temporal (visual) distortion in the output video.
+    Computes an optimal subset of frames to sample from a video. It calculates a cost that represents the
+    temporal (visual) distortion in the output video. The cost combines standard deviation of frame index
+    differences with a penalty for abrupt changes, providing a more accurate measure of visual continuity.
     """
 
     # Generate target_n_frames evenly spaced frame indices
     target_indices = np.linspace(0, total_n_frames - 1, target_n_frames)
     target_indices_rounded = target_indices.round().astype(int)
 
-    # Calculate the variance of differences between consecutive indices
+    # Calculate the differences between consecutive indices
     index_diffs = np.diff(target_indices_rounded)
-    variance_of_diffs = np.var(index_diffs)
 
-    # Define rounding cost as the variance of the index differences
-    # Higher variance could imply more noticeable temporal distortion
-    rounding_cost = float(variance_of_diffs)
+    # Calculate standard deviation of index differences
+    std_diff  = np.std(index_diffs)
+    mean_diff = np.mean(index_diffs)
+
+    visual_cost = float(std_diff / mean_diff)
 
     if verbose:
         print("---------------------------")
@@ -25,12 +27,20 @@ def compute_sampling_indices(total_n_frames, target_n_frames, verbose=0):
         print(target_indices_rounded)
         print(f"Total frames: {total_n_frames}")
         print(f"Target frames: {target_n_frames}")
-        print(f"Index variance (rounding cost): {rounding_cost:.3f}")
+        print(f"Standard Deviation of Differences: {std_diff:.3f}")
+        print(f"Visual Cost: {visual_cost:.3f}")
 
-    return list(target_indices_rounded), rounding_cost
+        # plot the index differences:
+        plt.figure(figsize=(10, 5))
+        plt.plot(index_diffs, marker='o')
+        plt.title(f"diffs @{target_n_frames}, cost = {visual_cost:.3f}, std_diff = {std_diff:.3f}")
+        plt.savefig(f"index_diffs_{target_n_frames}.png")
+        plt.close()
+
+    return list(target_indices_rounded), visual_cost
 
 
-def compute_frame_parameters(video_info, target_video_speedup_factor, output_fps, source_sampling_fps_range = [7,12]):
+def compute_frame_parameters(video_info, target_video_speedup_factor, output_fps, source_sampling_fps_range = [7,12], n_tests = 20):
     # Extract relevant data from video_info dictionary
     source_fps     = video_info['source_fps']
     total_n_frames = video_info['source_frame_count']
@@ -42,8 +52,9 @@ def compute_frame_parameters(video_info, target_video_speedup_factor, output_fps
     else:
         # Step 1: Pick the optimal subset of frames to sample from the source video:
         best_cost, best_source_sampling_fps = np.inf, source_fps
-        #for source_sampling_fps in list(range(source_sampling_fps_range[0], source_sampling_fps_range[1] + 1)):
-        for source_sampling_fps in list(np.linspace(source_sampling_fps_range[0], source_sampling_fps_range[1] + 1, 100)):
+        max_sampling_rate = min(source_fps, source_sampling_fps_range[1])
+
+        for source_sampling_fps in list(np.linspace(source_sampling_fps_range[0], max_sampling_rate + 1, 100)):
             n_target_frames = round(total_n_frames * (source_sampling_fps / source_fps))
             target_indices, rounding_cost = compute_sampling_indices(total_n_frames, n_target_frames)
 
@@ -68,7 +79,7 @@ def compute_frame_parameters(video_info, target_video_speedup_factor, output_fps
 
     print(f"Selected source_video sampling FPS: {best_source_sampling_fps:.3f} with visual cost {best_cost:.5f}")
     print(f"Selecting {len(select_frame_indices)} frames from the source video (originally {total_n_frames} frames).")
-    print(f"Output frame multiplier: {frame_multiplier:.3f}")
+    print(f"Output frame multiplier: {frame_multiplier}")
     print(f"Actual achieved visual speedup: {actual_video_speedup_factor:.3f}")
 
     return select_frame_indices, output_fps, frame_multiplier
