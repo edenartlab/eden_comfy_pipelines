@@ -54,8 +54,8 @@ class IPAdapterRandomRotateEmbeds:
             }
         }
 
-    RETURN_TYPES = ("EMBEDS","LATENT")
-    RETURN_NAMES = ("pos_embeds","latent_batch")
+    RETURN_TYPES = ("EMBEDS","INT",)
+    RETURN_NAMES = ("pos_embeds","batch_size",)
     FUNCTION = "run"
 
     CATEGORY = "Eden 🌱"
@@ -75,37 +75,16 @@ class IPAdapterRandomRotateEmbeds:
             pos_embed = ExplorationState.from_file(
                 filename = exploration_state_filename
             ).sample_embed
-            new_pos_embeds = random_rotate_embeds(
-                embeds = pos_embed,
-                num_samples=num_samples,
-                noise_scale=noise_scale
-            )
         else:
             print("No ExplorationState found. Using the input pos_embeds")
-            new_pos_embeds = random_rotate_embeds(
-                embeds = pos_embed,
-                num_samples=num_samples,
-                noise_scale=noise_scale
-            )
-
-        """
-        The caveat right now is that it supports a latent batch size of 1 only
-        """
-        assert latent["samples"].shape[0] == 1, f"Expected batch size of latents to be 1 but got: {latent['samples'].shape[0]}"
-
-        latent_tensor = latent["samples"]
-        latent_tensor = torch.cat(
-            [
-                latent_tensor
-                for i in range(num_samples)
-            ],
-            dim = 0
+        
+        new_pos_embeds = random_rotate_embeds(
+            embeds = pos_embed,
+            num_samples=num_samples,
+            noise_scale=noise_scale
         )
-        latent = {
-            "samples": latent_tensor
-        }
 
-        return (new_pos_embeds, latent)
+        return (new_pos_embeds, num_samples,)
 
 
 class SaveExplorationState:

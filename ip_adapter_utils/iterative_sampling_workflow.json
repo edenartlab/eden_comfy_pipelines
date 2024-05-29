@@ -1,6 +1,6 @@
 {
-  "last_node_id": 87,
-  "last_link_id": 172,
+  "last_node_id": 94,
+  "last_link_id": 183,
   "nodes": [
     {
       "id": 27,
@@ -14,7 +14,7 @@
         "1": 78
       },
       "flags": {},
-      "order": 2,
+      "order": 3,
       "mode": 0,
       "inputs": [
         {
@@ -58,69 +58,6 @@
       ]
     },
     {
-      "id": 26,
-      "type": "IPAdapterEncoder",
-      "pos": [
-        985.0280380859374,
-        -437.84579052734375
-      ],
-      "size": {
-        "0": 263.3588562011719,
-        "1": 118
-      },
-      "flags": {},
-      "order": 7,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "ipadapter",
-          "type": "IPADAPTER",
-          "link": 31
-        },
-        {
-          "name": "image",
-          "type": "IMAGE",
-          "link": 29
-        },
-        {
-          "name": "mask",
-          "type": "MASK",
-          "link": null
-        },
-        {
-          "name": "clip_vision",
-          "type": "CLIP_VISION",
-          "link": null
-        }
-      ],
-      "outputs": [
-        {
-          "name": "pos_embed",
-          "type": "EMBEDS",
-          "links": [
-            169
-          ],
-          "shape": 3,
-          "slot_index": 0
-        },
-        {
-          "name": "neg_embed",
-          "type": "EMBEDS",
-          "links": [
-            51
-          ],
-          "shape": 3,
-          "slot_index": 1
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "IPAdapterEncoder"
-      },
-      "widgets_values": [
-        1
-      ]
-    },
-    {
       "id": 39,
       "type": "IPAdapterEmbeds",
       "pos": [
@@ -132,7 +69,7 @@
         "1": 254
       },
       "flags": {},
-      "order": 10,
+      "order": 12,
       "mode": 0,
       "inputs": [
         {
@@ -148,7 +85,7 @@
         {
           "name": "pos_embed",
           "type": "EMBEDS",
-          "link": 168,
+          "link": 177,
           "slot_index": 2
         },
         {
@@ -201,7 +138,7 @@
         "1": 46
       },
       "flags": {},
-      "order": 12,
+      "order": 15,
       "mode": 0,
       "inputs": [
         {
@@ -241,7 +178,7 @@
         "1": 76
       },
       "flags": {},
-      "order": 16,
+      "order": 19,
       "mode": 0,
       "inputs": [
         {
@@ -260,68 +197,6 @@
       ]
     },
     {
-      "id": 61,
-      "type": "IPAdapterEncoder",
-      "pos": [
-        3070,
-        -514
-      ],
-      "size": [
-        233.67589222301103,
-        118
-      ],
-      "flags": {},
-      "order": 14,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "ipadapter",
-          "type": "IPADAPTER",
-          "link": 130
-        },
-        {
-          "name": "image",
-          "type": "IMAGE",
-          "link": 148
-        },
-        {
-          "name": "mask",
-          "type": "MASK",
-          "link": null,
-          "slot_index": 2
-        },
-        {
-          "name": "clip_vision",
-          "type": "CLIP_VISION",
-          "link": null
-        }
-      ],
-      "outputs": [
-        {
-          "name": "pos_embed",
-          "type": "EMBEDS",
-          "links": [
-            151
-          ],
-          "shape": 3,
-          "slot_index": 0
-        },
-        {
-          "name": "neg_embed",
-          "type": "EMBEDS",
-          "links": [],
-          "shape": 3,
-          "slot_index": 1
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "IPAdapterEncoder"
-      },
-      "widgets_values": [
-        1
-      ]
-    },
-    {
       "id": 73,
       "type": "SaveExplorationState",
       "pos": [
@@ -333,7 +208,7 @@
         "1": 58
       },
       "flags": {},
-      "order": 17,
+      "order": 20,
       "mode": 0,
       "inputs": [
         {
@@ -367,12 +242,12 @@
         3327,
         -446
       ],
-      "size": [
-        278.15100833863335,
-        75.99998760223389
-      ],
+      "size": {
+        "0": 278.1510009765625,
+        "1": 76
+      },
       "flags": {},
-      "order": 18,
+      "order": 21,
       "mode": 0,
       "inputs": [
         {
@@ -401,7 +276,7 @@
         "1": 46
       },
       "flags": {},
-      "order": 6,
+      "order": 8,
       "mode": 0,
       "inputs": [
         {
@@ -442,7 +317,7 @@
         "1": 459.8819885253906
       },
       "flags": {},
-      "order": 8,
+      "order": 10,
       "mode": 0,
       "inputs": [
         {
@@ -456,63 +331,6 @@
       }
     },
     {
-      "id": 84,
-      "type": "IPAdapterRandomRotateEmbeds",
-      "pos": [
-        1299,
-        -209
-      ],
-      "size": [
-        380.1361804199221,
-        174
-      ],
-      "flags": {},
-      "order": 9,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "pos_embed",
-          "type": "EMBEDS",
-          "link": 169
-        },
-        {
-          "name": "latent",
-          "type": "LATENT",
-          "link": 170
-        }
-      ],
-      "outputs": [
-        {
-          "name": "pos_embeds",
-          "type": "EMBEDS",
-          "links": [
-            168
-          ],
-          "shape": 3,
-          "slot_index": 0
-        },
-        {
-          "name": "latent_batch",
-          "type": "LATENT",
-          "links": [
-            167
-          ],
-          "shape": 3,
-          "slot_index": 1
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "IPAdapterRandomRotateEmbeds"
-      },
-      "widgets_values": [
-        4,
-        59,
-        "increment",
-        0.05,
-        "eden_exploration_state.pth"
-      ]
-    },
-    {
       "id": 53,
       "type": "PreviewImage",
       "pos": [
@@ -524,7 +342,7 @@
         "1": 493.1379089355469
       },
       "flags": {},
-      "order": 15,
+      "order": 18,
       "mode": 0,
       "inputs": [
         {
@@ -588,40 +406,6 @@
       ]
     },
     {
-      "id": 5,
-      "type": "EmptyLatentImage",
-      "pos": [
-        30,
-        -140
-      ],
-      "size": {
-        "0": 221.25408935546875,
-        "1": 106
-      },
-      "flags": {},
-      "order": 1,
-      "mode": 0,
-      "outputs": [
-        {
-          "name": "LATENT",
-          "type": "LATENT",
-          "links": [
-            2,
-            170
-          ],
-          "slot_index": 0
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "EmptyLatentImage"
-      },
-      "widgets_values": [
-        512,
-        512,
-        1
-      ]
-    },
-    {
       "id": 3,
       "type": "KSampler",
       "pos": [
@@ -633,7 +417,7 @@
         "1": 262
       },
       "flags": {},
-      "order": 5,
+      "order": 7,
       "mode": 0,
       "inputs": [
         {
@@ -692,7 +476,7 @@
         "1": 262
       },
       "flags": {},
-      "order": 11,
+      "order": 14,
       "mode": 0,
       "inputs": [
         {
@@ -713,7 +497,7 @@
         {
           "name": "latent_image",
           "type": "LATENT",
-          "link": 167,
+          "link": 179,
           "slot_index": 3
         }
       ],
@@ -741,42 +525,245 @@
       ]
     },
     {
-      "id": 7,
-      "type": "CLIPTextEncode",
+      "id": 26,
+      "type": "IPAdapterEncoder",
       "pos": [
-        30,
-        220
+        985,
+        -438
       ],
       "size": {
-        "0": 229.43533325195312,
-        "1": 76
+        "0": 263.3588562011719,
+        "1": 118
       },
       "flags": {},
-      "order": 4,
+      "order": 9,
       "mode": 0,
       "inputs": [
         {
-          "name": "clip",
-          "type": "CLIP",
-          "link": 5
+          "name": "ipadapter",
+          "type": "IPADAPTER",
+          "link": 31
+        },
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 29
+        },
+        {
+          "name": "mask",
+          "type": "MASK",
+          "link": null
+        },
+        {
+          "name": "clip_vision",
+          "type": "CLIP_VISION",
+          "link": null
         }
       ],
       "outputs": [
         {
-          "name": "CONDITIONING",
-          "type": "CONDITIONING",
+          "name": "pos_embed",
+          "type": "EMBEDS",
           "links": [
-            6,
-            54
+            181
+          ],
+          "shape": 3,
+          "slot_index": 0
+        },
+        {
+          "name": "neg_embed",
+          "type": "EMBEDS",
+          "links": [
+            51
+          ],
+          "shape": 3,
+          "slot_index": 1
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "IPAdapterEncoder"
+      },
+      "widgets_values": [
+        1
+      ]
+    },
+    {
+      "id": 5,
+      "type": "EmptyLatentImage",
+      "pos": [
+        176,
+        59
+      ],
+      "size": [
+        210,
+        78
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "width",
+          "type": "INT",
+          "link": 174,
+          "widget": {
+            "name": "width"
+          }
+        },
+        {
+          "name": "height",
+          "type": "INT",
+          "link": 175,
+          "widget": {
+            "name": "height"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": [
+            2,
+            180
           ],
           "slot_index": 0
         }
       ],
       "properties": {
-        "Node name for S&R": "CLIPTextEncode"
+        "Node name for S&R": "EmptyLatentImage"
       },
       "widgets_values": [
-        "ugly, low resolution, blurry, text, watermark"
+        512,
+        512,
+        1
+      ]
+    },
+    {
+      "id": 89,
+      "type": "Eden_Int",
+      "pos": [
+        -327,
+        -227
+      ],
+      "size": {
+        "0": 210,
+        "1": 58
+      },
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "outputs": [
+        {
+          "name": "INT",
+          "type": "INT",
+          "links": [
+            174,
+            182
+          ],
+          "shape": 3,
+          "slot_index": 0
+        }
+      ],
+      "title": "Width",
+      "properties": {
+        "Node name for S&R": "Eden_Int"
+      },
+      "widgets_values": [
+        512
+      ]
+    },
+    {
+      "id": 90,
+      "type": "Eden_Int",
+      "pos": [
+        -331,
+        -113
+      ],
+      "size": {
+        "0": 210,
+        "1": 58
+      },
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "outputs": [
+        {
+          "name": "INT",
+          "type": "INT",
+          "links": [
+            175,
+            183
+          ],
+          "shape": 3,
+          "slot_index": 0
+        }
+      ],
+      "title": "Height",
+      "properties": {
+        "Node name for S&R": "Eden_Int"
+      },
+      "widgets_values": [
+        512
+      ]
+    },
+    {
+      "id": 92,
+      "type": "EmptyLatentImage",
+      "pos": [
+        1791,
+        -188
+      ],
+      "size": [
+        210,
+        74
+      ],
+      "flags": {},
+      "order": 13,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "width",
+          "type": "INT",
+          "link": 182,
+          "widget": {
+            "name": "width"
+          }
+        },
+        {
+          "name": "height",
+          "type": "INT",
+          "link": 183,
+          "widget": {
+            "name": "height"
+          }
+        },
+        {
+          "name": "batch_size",
+          "type": "INT",
+          "link": 178,
+          "widget": {
+            "name": "batch_size"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": [
+            179
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "EmptyLatentImage"
+      },
+      "widgets_values": [
+        512,
+        512,
+        1
       ]
     },
     {
@@ -786,12 +773,12 @@
         2590,
         -135
       ],
-      "size": [
-        441.1918746093743,
-        599.3563325195307
-      ],
+      "size": {
+        "0": 441.1918640136719,
+        "1": 599.3563232421875
+      },
       "flags": {},
-      "order": 13,
+      "order": 16,
       "mode": 0,
       "inputs": [
         {
@@ -862,15 +849,15 @@
       "id": 6,
       "type": "CLIPTextEncode",
       "pos": [
-        30,
-        20
+        -338,
+        -7
       ],
       "size": [
-        219.17025756835938,
-        89.94293212890625
+        310.8446044921875,
+        82.261474609375
       ],
       "flags": {},
-      "order": 3,
+      "order": 4,
       "mode": 0,
       "inputs": [
         {
@@ -895,6 +882,164 @@
       },
       "widgets_values": [
         "A photo of a dog underwater"
+      ]
+    },
+    {
+      "id": 61,
+      "type": "IPAdapterEncoder",
+      "pos": [
+        3070,
+        -514
+      ],
+      "size": [
+        210,
+        118
+      ],
+      "flags": {},
+      "order": 17,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "ipadapter",
+          "type": "IPADAPTER",
+          "link": 130
+        },
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 148
+        },
+        {
+          "name": "mask",
+          "type": "MASK",
+          "link": null,
+          "slot_index": 2
+        },
+        {
+          "name": "clip_vision",
+          "type": "CLIP_VISION",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "pos_embed",
+          "type": "EMBEDS",
+          "links": [
+            151
+          ],
+          "shape": 3,
+          "slot_index": 0
+        },
+        {
+          "name": "neg_embed",
+          "type": "EMBEDS",
+          "links": [],
+          "shape": 3,
+          "slot_index": 1
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "IPAdapterEncoder"
+      },
+      "widgets_values": [
+        1
+      ]
+    },
+    {
+      "id": 94,
+      "type": "IPAdapterRandomRotateEmbeds",
+      "pos": [
+        1303,
+        -168
+      ],
+      "size": [
+        376.18798828125,
+        174
+      ],
+      "flags": {},
+      "order": 11,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "pos_embed",
+          "type": "EMBEDS",
+          "link": 181
+        },
+        {
+          "name": "latent",
+          "type": "LATENT",
+          "link": 180
+        }
+      ],
+      "outputs": [
+        {
+          "name": "pos_embeds",
+          "type": "EMBEDS",
+          "links": [
+            177
+          ],
+          "shape": 3,
+          "slot_index": 0
+        },
+        {
+          "name": "batch_size",
+          "type": "INT",
+          "links": [
+            178
+          ],
+          "shape": 3,
+          "slot_index": 1
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "IPAdapterRandomRotateEmbeds"
+      },
+      "widgets_values": [
+        4,
+        508,
+        "randomize",
+        0.05,
+        "eden_exploration_state.pth"
+      ]
+    },
+    {
+      "id": 7,
+      "type": "CLIPTextEncode",
+      "pos": [
+        78,
+        218
+      ],
+      "size": {
+        "0": 229.43533325195312,
+        "1": 76
+      },
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 5
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "links": [
+            6,
+            54
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "CLIPTextEncode"
+      },
+      "widgets_values": [
+        "ugly, low resolution, blurry, text, watermark"
       ]
     }
   ],
@@ -1100,38 +1245,6 @@
       "MODEL"
     ],
     [
-      167,
-      84,
-      1,
-      40,
-      3,
-      "LATENT"
-    ],
-    [
-      168,
-      84,
-      0,
-      39,
-      2,
-      "EMBEDS"
-    ],
-    [
-      169,
-      26,
-      0,
-      84,
-      0,
-      "EMBEDS"
-    ],
-    [
-      170,
-      5,
-      0,
-      84,
-      1,
-      "LATENT"
-    ],
-    [
       171,
       56,
       3,
@@ -1146,6 +1259,78 @@
       87,
       0,
       "*"
+    ],
+    [
+      174,
+      89,
+      0,
+      5,
+      0,
+      "INT"
+    ],
+    [
+      175,
+      90,
+      0,
+      5,
+      1,
+      "INT"
+    ],
+    [
+      177,
+      94,
+      0,
+      39,
+      2,
+      "EMBEDS"
+    ],
+    [
+      178,
+      94,
+      1,
+      92,
+      2,
+      "INT"
+    ],
+    [
+      179,
+      92,
+      0,
+      40,
+      3,
+      "LATENT"
+    ],
+    [
+      180,
+      5,
+      0,
+      94,
+      1,
+      "LATENT"
+    ],
+    [
+      181,
+      26,
+      0,
+      94,
+      0,
+      "EMBEDS"
+    ],
+    [
+      182,
+      89,
+      0,
+      92,
+      0,
+      "INT"
+    ],
+    [
+      183,
+      90,
+      0,
+      92,
+      1,
+      "INT"
     ]
   ],
   "groups": [
@@ -1156,6 +1341,17 @@
         -647,
         283,
         337
+      ],
+      "color": "#3f789e",
+      "font_size": 24
+    },
+    {
+      "title": "Inputs",
+      "bounding": [
+        -350,
+        -300,
+        335,
+        548
       ],
       "color": "#3f789e",
       "font_size": 24
