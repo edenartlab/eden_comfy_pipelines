@@ -43,6 +43,7 @@ class IPAdapterRandomRotateEmbeds:
                 "pos_embed": ("EMBEDS", ),
                 "latent": ("LATENT", ),
                 "num_samples": ("INT", {"default": 4, "min": 1}),
+                "seed": ("INT",{"default": 4}),
                 "noise_scale": ("FLOAT", {"default": 1e-2, }),
                 
             },
@@ -62,11 +63,13 @@ class IPAdapterRandomRotateEmbeds:
         self, 
         pos_embed: torch.tensor,
         latent: torch.tensor,
+        seed: int,
         num_samples: int = 4, 
         noise_scale: float = 1e-2,
         exploration_state_filename: torch.tensor = None,
         load_exploration_state = True
     ):
+        print(f"Fake seed to make this node run every time: {seed}")
         if os.path.exists(exploration_state_filename) and load_exploration_state == True:
             print(f"Loading ExplorationState: {exploration_state_filename}")
             pos_embed = ExplorationState.from_file(
