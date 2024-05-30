@@ -83,8 +83,7 @@ def random_rotate_embeds(
 
 
 
-def load_random_image_embeddings():
-    embed_dir = "custom_nodes/eden_comfy_pipelines/ip_adapter_utils/img_embeds"
+def load_random_image_embeddings(embed_dir):
     embeddings = []
 
     for p in [f for f in os.listdir(embed_dir) if f.endswith(".pth")]:
@@ -102,9 +101,9 @@ def load_random_image_embeddings():
     return embeddings, np.mean(norms)
 
 
-def random_linear_combination(strength, embeds, num_samples, num_elements = 2):
+def random_linear_combination(embed_dir, strength, embeds, num_samples, num_elements = 2):
     print("Applying random linear combination")
-    random_embeddings, avg_norm = load_random_image_embeddings()
+    random_embeddings, avg_norm = load_random_image_embeddings(embed_dir)
     new_embeds = []
     for i in range(num_samples):
         random_weights = np.random.uniform(0.3, 0.7, num_elements)
@@ -133,6 +132,29 @@ def random_linear_combination(strength, embeds, num_samples, num_elements = 2):
     return torch.stack(new_embeds).squeeze()
 
 
+import urllib.request
+import zipfile
+import os
+
+EMBEDDINGS_DIR = "custom_nodes/eden_comfy_pipelines/ip_adapter_utils/img_embeds"
+
+if not os.path.exists(EMBEDDINGS_DIR):
+    # download the folder zip:
+    url = "https://storage.googleapis.com/public-assets-xander/A_workbox/img_embeds.zip"
+    
+    # download the .zipfile:
+
+    print(f"Downloading {url}...")
+    urllib.request.urlretrieve(url, "img_embeds.zip")
+
+    # unzip the folder:
+    with zipfile.ZipFile("img_embeds.zip", 'r') as zip_ref:
+        zip_ref.extractall(os.path.dirname(EMBEDDINGS_DIR))
+
+    # remove the .zip file:
+    os.remove("img_embeds.zip")
+
+
 class IPAdapterRandomRotateEmbeds:
     @classmethod
     def INPUT_TYPES(s):
@@ -142,6 +164,7 @@ class IPAdapterRandomRotateEmbeds:
                 "num_samples": ("INT", {"default": 4, "min": 1}),
                 "mode": (['random_rotation', 'random_linear_combination'], ),
                 "seed": ("INT",{"default": 4}),
+                "embed_dir": (os.listdir(EMBEDDINGS_DIR), ),
                 "strength": ("FLOAT", {"default": 0.65, "min": 0.0, "max": 1.0, "step": 0.01}),
                 "max_angle": ("FLOAT", {"default": 20}),
                 "min_angle": ("FLOAT", {"default": 5}),
@@ -161,6 +184,7 @@ class IPAdapterRandomRotateEmbeds:
         seed: int,
         num_samples: int = 4, 
         mode: str = "random_rotation",
+        embed_dir: str = None,
         strength: float = 0.65,
         max_angle: float = 1.0,
         min_angle: float = 0.1,
@@ -185,8 +209,12 @@ class IPAdapterRandomRotateEmbeds:
         elif mode == "random_linear_combination":
             assert strength <= 1.0, "strength should be less than or equal to 1.0 when using random_linear_combination"
             assert strength >= 0.0, "strength should be greater than or equal to 0.0 when using random_linear_combination"
+            assert embed_dir is not None, "embed_dir should be provided when using random_linear_combination"
+
+            embed_dir = os.path.join(EMBEDDINGS_DIR, embed_dir)
 
             new_pos_embeds = random_linear_combination(
+                embed_dir=embed_dir,
                 strength = strength,
                 embeds = pos_embed,
                 num_samples=num_samples
