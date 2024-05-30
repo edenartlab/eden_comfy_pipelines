@@ -1,6 +1,6 @@
 {
-  "last_node_id": 97,
-  "last_link_id": 194,
+  "last_node_id": 99,
+  "last_link_id": 195,
   "nodes": [
     {
       "id": 27,
@@ -14,7 +14,7 @@
         "1": 78
       },
       "flags": {},
-      "order": 5,
+      "order": 6,
       "mode": 0,
       "inputs": [
         {
@@ -69,7 +69,7 @@
         "1": 46
       },
       "flags": {},
-      "order": 16,
+      "order": 17,
       "mode": 0,
       "inputs": [
         {
@@ -109,7 +109,7 @@
         "1": 76
       },
       "flags": {},
-      "order": 20,
+      "order": 21,
       "mode": 0,
       "inputs": [
         {
@@ -139,7 +139,7 @@
         "1": 58
       },
       "flags": {},
-      "order": 21,
+      "order": 22,
       "mode": 0,
       "inputs": [
         {
@@ -178,7 +178,7 @@
         "1": 76
       },
       "flags": {},
-      "order": 22,
+      "order": 23,
       "mode": 0,
       "inputs": [
         {
@@ -207,7 +207,7 @@
         "1": 46
       },
       "flags": {},
-      "order": 9,
+      "order": 10,
       "mode": 0,
       "inputs": [
         {
@@ -248,7 +248,7 @@
         "1": 493.1379089355469
       },
       "flags": {},
-      "order": 19,
+      "order": 20,
       "mode": 0,
       "inputs": [
         {
@@ -273,7 +273,7 @@
         "1": 262
       },
       "flags": {},
-      "order": 8,
+      "order": 9,
       "mode": 0,
       "inputs": [
         {
@@ -332,7 +332,7 @@
         "1": 262
       },
       "flags": {},
-      "order": 15,
+      "order": 16,
       "mode": 0,
       "inputs": [
         {
@@ -392,7 +392,7 @@
         "1": 78
       },
       "flags": {},
-      "order": 4,
+      "order": 5,
       "mode": 0,
       "inputs": [
         {
@@ -511,7 +511,7 @@
         "1": 118
       },
       "flags": {},
-      "order": 18,
+      "order": 19,
       "mode": 0,
       "inputs": [
         {
@@ -573,7 +573,7 @@
         "1": 76
       },
       "flags": {},
-      "order": 7,
+      "order": 8,
       "mode": 0,
       "inputs": [
         {
@@ -612,7 +612,7 @@
         "1": 459.8819885253906
       },
       "flags": {},
-      "order": 11,
+      "order": 12,
       "mode": 0,
       "inputs": [
         {
@@ -687,7 +687,7 @@
         "1": 82.261474609375
       },
       "flags": {},
-      "order": 6,
+      "order": 7,
       "mode": 0,
       "inputs": [
         {
@@ -726,7 +726,7 @@
         "1": 118
       },
       "flags": {},
-      "order": 10,
+      "order": 11,
       "mode": 0,
       "inputs": [
         {
@@ -789,7 +789,7 @@
         "1": 74
       },
       "flags": {},
-      "order": 14,
+      "order": 15,
       "mode": 0,
       "inputs": [
         {
@@ -848,7 +848,7 @@
         "1": 254
       },
       "flags": {},
-      "order": 13,
+      "order": 14,
       "mode": 0,
       "inputs": [
         {
@@ -912,12 +912,12 @@
         1327,
         -289
       ],
-      "size": [
-        315,
-        174
-      ],
+      "size": {
+        "0": 315,
+        "1": 174
+      },
       "flags": {},
-      "order": 12,
+      "order": 13,
       "mode": 0,
       "inputs": [
         {
@@ -931,6 +931,14 @@
           "link": 192,
           "widget": {
             "name": "max_angle"
+          }
+        },
+        {
+          "name": "min_angle",
+          "type": "FLOAT",
+          "link": 195,
+          "widget": {
+            "name": "min_angle"
           }
         }
       ],
@@ -959,18 +967,19 @@
       },
       "widgets_values": [
         4,
-        422,
+        394,
         "randomize",
         20,
+        null,
         "eden_exploration_state.pth"
       ]
     },
     {
-      "id": 95,
+      "id": 99,
       "type": "Eden_Float",
       "pos": [
-        908,
-        -130
+        947,
+        -138
       ],
       "size": {
         "0": 315,
@@ -978,6 +987,38 @@
       },
       "flags": {},
       "order": 3,
+      "mode": 0,
+      "outputs": [
+        {
+          "name": "FLOAT",
+          "type": "FLOAT",
+          "links": [
+            195
+          ],
+          "shape": 3,
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "Eden_Float"
+      },
+      "widgets_values": [
+        15
+      ]
+    },
+    {
+      "id": 95,
+      "type": "Eden_Float",
+      "pos": [
+        948,
+        -241
+      ],
+      "size": {
+        "0": 315,
+        "1": 58
+      },
+      "flags": {},
+      "order": 4,
       "mode": 0,
       "outputs": [
         {
@@ -994,22 +1035,22 @@
         "Node name for S&R": "Eden_Float"
       },
       "widgets_values": [
-        60
+        20
       ]
     },
     {
       "id": 56,
       "type": "Preview Chooser",
       "pos": [
-        2590,
-        -134
+        2597,
+        -135
       ],
       "size": {
         "0": 441.1918640136719,
         "1": 599.3563232421875
       },
       "flags": {},
-      "order": 17,
+      "order": 18,
       "mode": 0,
       "inputs": [
         {
@@ -1365,6 +1406,14 @@
       39,
       2,
       "EMBEDS"
+    ],
+    [
+      195,
+      99,
+      0,
+      97,
+      2,
+      "FLOAT"
     ]
   ],
   "groups": [
@@ -1394,10 +1443,10 @@
   "config": {},
   "extra": {
     "ds": {
-      "scale": 0.7627768444385546,
+      "scale": 0.6303940863128553,
       "offset": {
-        "0": -1259.250374568402,
-        "1": 395.5222529602505
+        "0": -712.3709325377395,
+        "1": 532.076836818146
       }
     },
     "groupNodes": {}
