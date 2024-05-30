@@ -431,220 +431,16 @@
       ]
     },
     {
-      "id": 4,
-      "type": "CheckpointLoaderSimple",
-      "pos": [
-        -657,
-        137
-      ],
-      "size": {
-        "0": 315,
-        "1": 98
-      },
-      "flags": {},
-      "order": 2,
-      "mode": 0,
-      "outputs": [
-        {
-          "name": "MODEL",
-          "type": "MODEL",
-          "links": [
-            203
-          ],
-          "slot_index": 0
-        },
-        {
-          "name": "CLIP",
-          "type": "CLIP",
-          "links": [
-            206
-          ],
-          "slot_index": 1
-        },
-        {
-          "name": "VAE",
-          "type": "VAE",
-          "links": [
-            8,
-            58
-          ],
-          "slot_index": 2
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "CheckpointLoaderSimple"
-      },
-      "widgets_values": [
-        "sdxl_lightning_8step.safetensors"
-      ]
-    },
-    {
-      "id": 109,
-      "type": "LoraLoader",
-      "pos": [
-        -261,
-        138
-      ],
-      "size": {
-        "0": 246.63177490234375,
-        "1": 126
-      },
-      "flags": {},
-      "order": 6,
-      "mode": 4,
-      "inputs": [
-        {
-          "name": "model",
-          "type": "MODEL",
-          "link": 203
-        },
-        {
-          "name": "clip",
-          "type": "CLIP",
-          "link": 206
-        }
-      ],
-      "outputs": [
-        {
-          "name": "MODEL",
-          "type": "MODEL",
-          "links": [
-            201,
-            202
-          ],
-          "shape": 3,
-          "slot_index": 0
-        },
-        {
-          "name": "CLIP",
-          "type": "CLIP",
-          "links": [
-            204,
-            205
-          ],
-          "shape": 3,
-          "slot_index": 1
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "LoraLoader"
-      },
-      "widgets_values": [
-        "SDXL_lora_xander.safetensors",
-        0.7000000000000001,
-        0.7000000000000001
-      ]
-    },
-    {
-      "id": 7,
-      "type": "CLIPTextEncode",
-      "pos": [
-        78,
-        218
-      ],
-      "size": {
-        "0": 229.43533325195312,
-        "1": 76
-      },
-      "flags": {},
-      "order": 8,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "clip",
-          "type": "CLIP",
-          "link": 204
-        }
-      ],
-      "outputs": [
-        {
-          "name": "CONDITIONING",
-          "type": "CONDITIONING",
-          "links": [
-            6,
-            54
-          ],
-          "slot_index": 0
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "CLIPTextEncode"
-      },
-      "widgets_values": [
-        ""
-      ]
-    },
-    {
-      "id": 40,
-      "type": "KSampler",
-      "pos": [
-        2562,
-        -171
-      ],
-      "size": {
-        "0": 267.87701416015625,
-        "1": 262
-      },
-      "flags": {},
-      "order": 17,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "model",
-          "type": "MODEL",
-          "link": 57
-        },
-        {
-          "name": "positive",
-          "type": "CONDITIONING",
-          "link": 88
-        },
-        {
-          "name": "negative",
-          "type": "CONDITIONING",
-          "link": 54
-        },
-        {
-          "name": "latent_image",
-          "type": "LATENT",
-          "link": 179,
-          "slot_index": 3
-        }
-      ],
-      "outputs": [
-        {
-          "name": "LATENT",
-          "type": "LATENT",
-          "links": [
-            103
-          ],
-          "slot_index": 0
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "KSampler"
-      },
-      "widgets_values": [
-        711577285819287,
-        "randomize",
-        8,
-        1,
-        "euler_ancestral",
-        "sgm_uniform",
-        1
-      ]
-    },
-    {
       "id": 41,
       "type": "VAEDecode",
       "pos": [
         2404,
         41
       ],
-      "size": [
-        140,
-        46
-      ],
+      "size": {
+        "0": 140,
+        "1": 46
+      },
       "flags": {},
       "order": 18,
       "mode": 0,
@@ -681,10 +477,10 @@
         2396,
         139
       ],
-      "size": [
-        441.9994140624999,
-        426.7498962402344
-      ],
+      "size": {
+        "0": 441.9994201660156,
+        "1": 426.7499084472656
+      },
       "flags": {},
       "order": 21,
       "mode": 0,
@@ -736,6 +532,239 @@
       },
       "widgets_values": [
         "eden_exploration_state.pth"
+      ]
+    },
+    {
+      "id": 111,
+      "type": "Note",
+      "pos": [
+        2864,
+        -213
+      ],
+      "size": {
+        "0": 235.3993682861328,
+        "1": 83.54994201660156
+      },
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "properties": {
+        "text": ""
+      },
+      "widgets_values": [
+        "Exploration Strength:\n\n0.55 --> local tuning\n0.65 --> default exploration\n0.75 --> wild variations"
+      ],
+      "color": "#432",
+      "bgcolor": "#653"
+    },
+    {
+      "id": 104,
+      "type": "IPAdapterRandomRotateEmbeds",
+      "pos": [
+        1316,
+        -295
+      ],
+      "size": {
+        "0": 359.5858459472656,
+        "1": 246
+      },
+      "flags": {},
+      "order": 14,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "pos_embed",
+          "type": "EMBEDS",
+          "link": 199
+        },
+        {
+          "name": "strength",
+          "type": "FLOAT",
+          "link": 207,
+          "widget": {
+            "name": "strength"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "pos_embeds",
+          "type": "EMBEDS",
+          "links": [
+            198
+          ],
+          "shape": 3,
+          "slot_index": 0
+        },
+        {
+          "name": "batch_size",
+          "type": "INT",
+          "links": [
+            197
+          ],
+          "shape": 3,
+          "slot_index": 1
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "IPAdapterRandomRotateEmbeds"
+      },
+      "widgets_values": [
+        6,
+        "random_linear_combination",
+        799,
+        "randomize",
+        "styles",
+        5,
+        5,
+        0.1,
+        "eden_exploration_state.pth"
+      ]
+    },
+    {
+      "id": 4,
+      "type": "CheckpointLoaderSimple",
+      "pos": [
+        -657,
+        137
+      ],
+      "size": {
+        "0": 315,
+        "1": 98
+      },
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            203
+          ],
+          "slot_index": 0
+        },
+        {
+          "name": "CLIP",
+          "type": "CLIP",
+          "links": [
+            206
+          ],
+          "slot_index": 1
+        },
+        {
+          "name": "VAE",
+          "type": "VAE",
+          "links": [
+            8,
+            58
+          ],
+          "slot_index": 2
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "CheckpointLoaderSimple"
+      },
+      "widgets_values": [
+        "dreamshaperXL_lightningDPMSDE.safetensors"
+      ]
+    },
+    {
+      "id": 7,
+      "type": "CLIPTextEncode",
+      "pos": [
+        78,
+        218
+      ],
+      "size": {
+        "0": 229.43533325195312,
+        "1": 76
+      },
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 204
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "links": [
+            6,
+            54
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "CLIPTextEncode"
+      },
+      "widgets_values": [
+        "low resolution, ugly, blurry"
+      ]
+    },
+    {
+      "id": 3,
+      "type": "KSampler",
+      "pos": [
+        410,
+        140
+      ],
+      "size": {
+        "0": 315,
+        "1": 262
+      },
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 202
+        },
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "link": 4
+        },
+        {
+          "name": "negative",
+          "type": "CONDITIONING",
+          "link": 6
+        },
+        {
+          "name": "latent_image",
+          "type": "LATENT",
+          "link": 2
+        }
+      ],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": [
+            72
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "KSampler"
+      },
+      "widgets_values": [
+        1,
+        "fixed",
+        4,
+        2,
+        "dpmpp_sde_gpu",
+        "karras",
+        1
       ]
     },
     {
@@ -812,8 +841,8 @@
       "id": 86,
       "type": "Display Any (rgthree)",
       "pos": [
-        3341,
-        -226
+        3342,
+        -216
       ],
       "size": {
         "0": 210,
@@ -839,196 +868,11 @@
       ]
     },
     {
-      "id": 111,
-      "type": "Note",
-      "pos": [
-        2864,
-        -213
-      ],
-      "size": [
-        235.39936523437518,
-        83.54994506835939
-      ],
-      "flags": {},
-      "order": 3,
-      "mode": 0,
-      "properties": {
-        "text": ""
-      },
-      "widgets_values": [
-        "Exploration Strength:\n\n0.55 --> local tuning\n0.65 --> default exploration\n0.75 --> wild variations"
-      ],
-      "color": "#432",
-      "bgcolor": "#653"
-    },
-    {
-      "id": 3,
-      "type": "KSampler",
-      "pos": [
-        410,
-        140
-      ],
-      "size": {
-        "0": 315,
-        "1": 262
-      },
-      "flags": {},
-      "order": 10,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "model",
-          "type": "MODEL",
-          "link": 202
-        },
-        {
-          "name": "positive",
-          "type": "CONDITIONING",
-          "link": 4
-        },
-        {
-          "name": "negative",
-          "type": "CONDITIONING",
-          "link": 6
-        },
-        {
-          "name": "latent_image",
-          "type": "LATENT",
-          "link": 2
-        }
-      ],
-      "outputs": [
-        {
-          "name": "LATENT",
-          "type": "LATENT",
-          "links": [
-            72
-          ],
-          "slot_index": 0
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "KSampler"
-      },
-      "widgets_values": [
-        1,
-        "fixed",
-        8,
-        1,
-        "euler",
-        "sgm_uniform",
-        1
-      ]
-    },
-    {
-      "id": 6,
-      "type": "CLIPTextEncode",
-      "pos": [
-        -655,
-        -10
-      ],
-      "size": {
-        "0": 306.73028564453125,
-        "1": 91.24018096923828
-      },
-      "flags": {},
-      "order": 9,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "clip",
-          "type": "CLIP",
-          "link": 205
-        }
-      ],
-      "outputs": [
-        {
-          "name": "CONDITIONING",
-          "type": "CONDITIONING",
-          "links": [
-            4,
-            88
-          ],
-          "slot_index": 0
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "CLIPTextEncode"
-      },
-      "widgets_values": [
-        "a weird photo of a guy with a glass head, exposing his brain"
-      ]
-    },
-    {
-      "id": 104,
-      "type": "IPAdapterRandomRotateEmbeds",
-      "pos": [
-        1316,
-        -295
-      ],
-      "size": {
-        "0": 359.5858459472656,
-        "1": 246
-      },
-      "flags": {},
-      "order": 14,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "pos_embed",
-          "type": "EMBEDS",
-          "link": 199
-        },
-        {
-          "name": "strength",
-          "type": "FLOAT",
-          "link": 207,
-          "widget": {
-            "name": "strength"
-          }
-        }
-      ],
-      "outputs": [
-        {
-          "name": "pos_embeds",
-          "type": "EMBEDS",
-          "links": [
-            198
-          ],
-          "shape": 3,
-          "slot_index": 0
-        },
-        {
-          "name": "batch_size",
-          "type": "INT",
-          "links": [
-            197
-          ],
-          "shape": 3,
-          "slot_index": 1
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "IPAdapterRandomRotateEmbeds"
-      },
-      "widgets_values": [
-        6,
-        "random_linear_combination",
-        53,
-        "randomize",
-        "styles",
-        5,
-        5,
-        0.1,
-        "eden_exploration_state.pth"
-      ]
-    },
-    {
       "id": 108,
       "type": "PreviewImage",
       "pos": [
-        1638,
-        381
+        985,
+        248
       ],
       "size": {
         "0": 210,
@@ -1055,10 +899,10 @@
         3115,
         -192
       ],
-      "size": [
-        210,
-        58
-      ],
+      "size": {
+        "0": 210,
+        "1": 58
+      },
       "flags": {},
       "order": 4,
       "mode": 0,
@@ -1078,15 +922,171 @@
         "Node name for S&R": "Eden_Float"
       },
       "widgets_values": [
-        0.6
+        0.7000000000000001
+      ]
+    },
+    {
+      "id": 109,
+      "type": "LoraLoader",
+      "pos": [
+        -261,
+        138
+      ],
+      "size": {
+        "0": 246.63177490234375,
+        "1": 126
+      },
+      "flags": {},
+      "order": 6,
+      "mode": 4,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 203
+        },
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 206
+        }
+      ],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            201,
+            202
+          ],
+          "shape": 3,
+          "slot_index": 0
+        },
+        {
+          "name": "CLIP",
+          "type": "CLIP",
+          "links": [
+            204,
+            205
+          ],
+          "shape": 3,
+          "slot_index": 1
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LoraLoader"
+      },
+      "widgets_values": [
+        "SDXL_lora_xander.safetensors",
+        0.5,
+        0.5
+      ]
+    },
+    {
+      "id": 6,
+      "type": "CLIPTextEncode",
+      "pos": [
+        -654,
+        -17
+      ],
+      "size": [
+        304.7661743164062,
+        96.0874273126775
+      ],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 205
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "links": [
+            4,
+            88
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "CLIPTextEncode"
+      },
+      "widgets_values": [
+        "a weird photo of a man, artistic professional photography, sharp details, uhd\n"
+      ]
+    },
+    {
+      "id": 40,
+      "type": "KSampler",
+      "pos": [
+        2562,
+        -171
+      ],
+      "size": {
+        "0": 267.87701416015625,
+        "1": 262
+      },
+      "flags": {},
+      "order": 17,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 57
+        },
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "link": 88
+        },
+        {
+          "name": "negative",
+          "type": "CONDITIONING",
+          "link": 54
+        },
+        {
+          "name": "latent_image",
+          "type": "LATENT",
+          "link": 179,
+          "slot_index": 3
+        }
+      ],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": [
+            103
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "KSampler"
+      },
+      "widgets_values": [
+        294958931250176,
+        "randomize",
+        4,
+        2,
+        "dpmpp_sde_gpu",
+        "karras",
+        1
       ]
     },
     {
       "id": 56,
       "type": "Preview Chooser",
       "pos": [
-        2862,
-        -80
+        2861,
+        -79
       ],
       "size": {
         "0": 689.86376953125,
