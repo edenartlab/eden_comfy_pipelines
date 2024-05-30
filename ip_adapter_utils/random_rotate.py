@@ -1,39 +1,68 @@
 import torch
 from .exploration_state import ExplorationState
 import os
-import time
+import torch
+import numpy as np
+import torch
 
-def small_random_rotation(x, epsilon=1e-4):
-    input_dtype = x.dtype
-    # x shape is expected to be [1, 1, 1280]
-    dim = x.shape[-1]
+def generate_random_rotation_matrix(dim, max_angle):
+    """
+    Generate a random rotation matrix for a given dimension and maximum angle.
+    
+    Args:
+        dim (int): The dimension of the rotation matrix.
+        max_angle (float): The maximum rotation angle in degrees.
+    
+    Returns:
+        np.ndarray: A rotation matrix of shape (dim, dim).
+    """
+    max_angle_rad = np.deg2rad(max_angle)
+    angle = np.random.uniform(-max_angle_rad, max_angle_rad)
+    
+    rotation_matrix = np.eye(dim)
+    
+    for i in range(dim):
+        angle = np.random.uniform(-max_angle_rad, max_angle_rad)
+        rotation_matrix[i, i] = np.cos(angle)
+        if i < dim - 1:
+            rotation_matrix[i, i + 1] = -np.sin(angle)
+            rotation_matrix[i + 1, i] = np.sin(angle)
+            rotation_matrix[i + 1, i + 1] = np.cos(angle)
+    
+    return torch.tensor(rotation_matrix)
 
-    seed = int(time.time() * 1e6) % 2**32
-    torch.manual_seed(seed)
-
-    # Generate a random skew-symmetric matrix
-    A = torch.randn((dim, dim), device=x.device)
-    A = (A - A.t()) / 2  # Making A skew-symmetric
-
-    # Small rotation approximation
-    # R = I + epsilon * A
-    I = torch.eye(dim, device=x.device)
-    R = I + epsilon * A
-
-    # Applying the rotation to x
-    x_rotated = torch.matmul(x.float(), R)
-    return x_rotated.to(input_dtype)
+def small_random_rotation(tensor, max_angle):
+    """
+    Apply a random rotation to each slice along the last dimension of the tensor.
+    
+    Args:
+        tensor (torch.Tensor): Input tensor of shape [1, 257, 1280].
+        max_angle (float): Maximum rotation angle in degrees.
+    
+    Returns:
+        torch.Tensor: Rotated tensor.
+    """
+    # Get the shape of the tensor
+    _, num_slices, num_features = tensor.shape
+    
+    # Generate a random rotation matrix for the last dimension
+    rotation_matrix = generate_random_rotation_matrix(num_features, max_angle)
+    print(f"Applying a random rotation of upto {max_angle} degrees")
+    # Apply the rotation matrix to each slice
+    rotated_tensor = torch.matmul(tensor, rotation_matrix.to(dtype = tensor.dtype))
+    
+    return rotated_tensor
 
 def random_rotate_embeds(
     embeds, 
-    noise_scale=1e-4, 
+    max_angle=1e-4, 
     num_samples: int = 4
 ):
     new_embeds = torch.cat(
         [
             small_random_rotation(
-                x=embeds,
-                epsilon=noise_scale
+                tensor=embeds,
+                max_angle=max_angle
             )
             for i in range(num_samples)
         ]
@@ -46,10 +75,9 @@ class IPAdapterRandomRotateEmbeds:
         return {
             "required": {
                 "pos_embed": ("EMBEDS", ),
-                "latent": ("LATENT", ),
                 "num_samples": ("INT", {"default": 4, "min": 1}),
                 "seed": ("INT",{"default": 4}),
-                "noise_scale": ("FLOAT", {"default": 1e-2, "min": 0.0, "max": 0.5, "step": 0.01}),
+                "max_angle": ("FLOAT", {"default": 20}),
                 "exploration_state_filename": ("STRING", {"default": "eden_exploration_state.pth"})
             }
         }
@@ -63,10 +91,9 @@ class IPAdapterRandomRotateEmbeds:
     def run(
         self, 
         pos_embed: torch.tensor,
-        latent: torch.tensor,
         seed: int,
         num_samples: int = 4, 
-        noise_scale: float = 1e-2,
+        max_angle: float = 1e-2,
         exploration_state_filename: torch.tensor = None
     ):
         print(f"Fake seed to make this node run every time: {seed}")
@@ -81,7 +108,7 @@ class IPAdapterRandomRotateEmbeds:
         new_pos_embeds = random_rotate_embeds(
             embeds = pos_embed,
             num_samples=num_samples,
-            noise_scale=noise_scale
+            max_angle=max_angle
         )
 
         return (new_pos_embeds, num_samples,)
