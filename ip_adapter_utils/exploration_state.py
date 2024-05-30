@@ -12,7 +12,7 @@ class ExplorationState:
 
     def save(self, filename):
         state_dict = {
-            "sample_embed": self.sample_embed,
+            "sample_embed": self.sample_embed.half(),
         }
         torch.save(
             state_dict,
@@ -26,5 +26,5 @@ class ExplorationState:
             filename
         )
         return cls(
-            sample_embed = state_dict["sample_embed"],
+            sample_embed = state_dict["sample_embed"].float(),
         )
