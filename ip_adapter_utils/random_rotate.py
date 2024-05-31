@@ -5,6 +5,32 @@ import torch
 import numpy as np
 import torch
 import time
+from typing import List
+
+
+def get_id_from_filename(filename):
+    ## image_id of images/scoobydoo.jpg = scoobydoo
+    image_id = os.path.basename(filename).split(".")[0]
+    return image_id
+
+def find_all_filenames_with_extension(filenames: List[str], extensions: List[str]) -> List[str]:
+    result = []
+    for filename in filenames:
+        if any(filename.endswith(ext) for ext in extensions):
+            result.append(filename)
+    return result
+
+def get_filenames_in_a_folder(folder: str):
+    """
+    returns the list of paths to all the files in a given folder
+    """
+    
+    if folder[-1] == '/':
+        folder = folder[:-1]
+        
+    files =  os.listdir(folder)
+    files = [f'{folder}/' + x for x in files]
+    return files
 
 def generate_random_rotation_matrix(dim, max_angle, min_angle = 10):
     """
@@ -162,7 +188,7 @@ class IPAdapterRandomRotateEmbeds:
             "required": {
                 "pos_embed": ("EMBEDS", ),
                 "num_samples": ("INT", {"default": 4, "min": 1}),
-                "mode": (['random_rotation', 'random_linear_combination'], ),
+                "mode": ("STRING", {"default": 'random_rotation'}),
                 "seed": ("INT",{"default": 4}),
                 "embed_dir": (os.listdir(EMBEDDINGS_DIR), ),
                 "strength": ("FLOAT", {"default": 0.65, "min": 0.0, "max": 1.0, "step": 0.01}),
@@ -199,7 +225,7 @@ class IPAdapterRandomRotateEmbeds:
         else:
             print("No ExplorationState found. Using the input pos_embeds")
 
-        if mode == "random rotation":
+        if mode == "random_rotation":
             new_pos_embeds = random_rotate_embeds(
                 embeds = pos_embed,
                 num_samples=num_samples,
@@ -219,6 +245,8 @@ class IPAdapterRandomRotateEmbeds:
                 embeds = pos_embed,
                 num_samples=num_samples
             )
+        else:
+            raise ValueError(f"Invalid mode: {mode}")
 
         return (new_pos_embeds, num_samples,)
 
@@ -252,3 +280,130 @@ class SaveExplorationState:
         print("-----------------------------------")
         print(f"Saved ExplorationState: {filename}")
         return (filename,)
+
+class SavePosEmbeds:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "pos_embed": ("EMBEDS", ),
+                "cache_dir": ("STRING", {"default": "eden_images/xander_big"}),
+                "non_embedded_images_folder": ("STRING", {"default": "eden_images/non_embedded_images"}),
+            }
+        }
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("cache_dir",)
+    FUNCTION = "run"
+
+    CATEGORY = "Eden 🌱"
+
+    def run(
+        self, 
+        pos_embed,
+        cache_dir: str,
+        non_embedded_images_folder: str
+    ):
+        assert pos_embed.ndim == 3, f"Expected batch to have 3 dims (batch, 257, 1280) but got: {pos_embed.ndim} dims"
+        non_embedded_image_filenames = get_filenames_in_a_folder(
+            folder = non_embedded_images_folder,
+        )
+        assert len(non_embedded_image_filenames) == pos_embed.shape[0], f"Expected the batch size of pos_embed ({pos_embed.shape[0]}) to be the same as the number of images found in non_embedded_images_folder: {len(non_embedded_image_filenames)}. non_embedded_image_filenames: {non_embedded_image_filenames}"
+
+        all_image_ids = [
+            get_id_from_filename(filename = f)
+            for f in non_embedded_image_filenames
+        ]
+
+        for batch_idx, image_id in enumerate(all_image_ids):
+            save_filename = os.path.join(
+                cache_dir,
+                f"{image_id}.pth"
+            )
+            torch.save(
+                pos_embed[batch_idx],
+                f = save_filename
+            )
+            print(f"[SavePosEmbeds] Saved: {save_filename}")
+        
+        return (cache_dir,)
+
+class FolderScanner:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "cache_dir": ("STRING", {"default": "eden_images/xander_big"}),
+                "non_embedded_images_folder": ("STRING", {"default": "eden_images/non_embedded_images"}),
+            }
+        }
+    
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("non_embedded_images_folder",)
+    FUNCTION = "run"
+
+    CATEGORY = "Eden 🌱"
+    
+    def run(self, cache_dir: str, non_embedded_images_folder: str):
+        """
+        expects image_folder to be a folder containing both images and embeddings.
+        ideally, it should contain pairs of image and their corresponding IP adapter embeddings as:
+        - x.jpg, x.pth
+        - y.jpg, y.pth
+
+        {id}.jpg should have an {id}.pth associated to it.
+
+        if image and no embedding:
+            generate embedding for image and save {id}.pth (this is done in a subsequent node, not on this one)
+        if embedding and no image:
+            delete {id}.pth
+
+        run this scan every time the node is run
+        """
+        assert os.path.exists(cache_dir), f"Invalid cache_dir: {cache_dir}"
+        assert os.path.exists(non_embedded_images_folder), f"Invalid non_embedded_images_folder: {non_embedded_images_folder}"
+
+        filenames = get_filenames_in_a_folder(folder = cache_dir)
+        all_image_filenames = find_all_filenames_with_extension(
+            filenames = filenames,
+            extensions = [".jpg"]
+        )
+
+        all_embedding_filenames = find_all_filenames_with_extension(
+            filenames = filenames,
+            extensions = [".pth"]
+        )
+
+        image_filenames_without_embeddings = []
+        for image_filename in all_image_filenames:
+            image_id = get_id_from_filename(filename = image_filename)
+            corresponding_embedding_filename = os.path.join(cache_dir, f"{image_id}.jpg")
+
+            if corresponding_embedding_filename not in all_embedding_filenames:
+                image_filenames_without_embeddings.append(
+                    image_filename
+                )
+            else:
+                pass
+
+        embedding_filenames_to_be_deleted = []
+        for embedding_filename in all_embedding_filenames:
+            image_id = os.path.basename(embedding_filename).split(".")[0]
+            corresponding_image_filename = os.path.join(cache_dir, f"{image_id}.jpg")
+            if corresponding_image_filename not in all_image_filenames:
+                embedding_filenames_to_be_deleted.append(
+                    embedding_filename
+                )
+
+        for image_filename in image_filenames_without_embeddings:
+            print(f"[FolderScanner] Copying: {image_filename} to {non_embedded_images_folder}")
+            os.system(
+                f"cp {image_filename} {non_embedded_images_folder}"
+            )
+
+        for embedding_filename in embedding_filenames_to_be_deleted:
+            print(f"[FolderScanner] Deleting: {embedding_filename}")
+            os.system(
+                f"rm {embedding_filename}"
+            )
+
+        return (non_embedded_images_folder,)    
