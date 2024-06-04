@@ -128,6 +128,9 @@ def load_random_image_embeddings(embed_dir):
 
 
 def random_linear_combination(embed_dir, strength, embeds, num_samples, num_elements = 2):
+    """
+    TODO: num_elements should be an arg in comfy
+    """
     print("Applying random linear combination")
     random_embeddings, avg_norm = load_random_image_embeddings(embed_dir)
     new_embeds = []
@@ -288,7 +291,7 @@ class SavePosEmbeds:
             "required": {
                 "pos_embed": ("EMBEDS", ),
                 "cache_dir": ("STRING", {"default": "eden_images/xander_big"}),
-                "non_embedded_images_folder": ("STRING", {"default": "eden_images/non_embedded_images"}),
+                "non_embedded_image_filenames": ("LIST",),
             }
         }
     RETURN_TYPES = ("STRING",)
@@ -301,12 +304,9 @@ class SavePosEmbeds:
         self, 
         pos_embed,
         cache_dir: str,
-        non_embedded_images_folder: str
+        non_embedded_image_filenames: str,
     ):
         assert pos_embed.ndim == 3, f"Expected batch to have 3 dims (batch, 257, 1280) but got: {pos_embed.ndim} dims"
-        non_embedded_image_filenames = get_filenames_in_a_folder(
-            folder = non_embedded_images_folder,
-        )
         assert len(non_embedded_image_filenames) == pos_embed.shape[0], f"Expected the batch size of pos_embed ({pos_embed.shape[0]}) to be the same as the number of images found in non_embedded_images_folder: {len(non_embedded_image_filenames)}. non_embedded_image_filenames: {non_embedded_image_filenames}"
 
         all_image_ids = [
@@ -333,17 +333,16 @@ class FolderScanner:
         return {
             "required": {
                 "cache_dir": ("STRING", {"default": "eden_images/xander_big"}),
-                "non_embedded_images_folder": ("STRING", {"default": "eden_images/non_embedded_images"}),
             }
         }
     
-    RETURN_TYPES = ("STRING",)
-    RETURN_NAMES = ("non_embedded_images_folder",)
+    RETURN_TYPES = ("LIST",)
+    RETURN_NAMES = ("non_embedded_image_filenames",)
     FUNCTION = "run"
 
     CATEGORY = "Eden 🌱"
     
-    def run(self, cache_dir: str, non_embedded_images_folder: str):
+    def run(self, cache_dir: str,):
         """
         expects image_folder to be a folder containing both images and embeddings.
         ideally, it should contain pairs of image and their corresponding IP adapter embeddings as:
@@ -360,12 +359,11 @@ class FolderScanner:
         run this scan every time the node is run
         """
         assert os.path.exists(cache_dir), f"Invalid cache_dir: {cache_dir}"
-        assert os.path.exists(non_embedded_images_folder), f"Invalid non_embedded_images_folder: {non_embedded_images_folder}"
 
         filenames = get_filenames_in_a_folder(folder = cache_dir)
         all_image_filenames = find_all_filenames_with_extension(
             filenames = filenames,
-            extensions = [".jpg"]
+            extensions = [".png", ".jpg", ".jpeg", ".bmp", ".webp"]
         )
 
         all_embedding_filenames = find_all_filenames_with_extension(
@@ -394,16 +392,39 @@ class FolderScanner:
                     embedding_filename
                 )
 
-        for image_filename in image_filenames_without_embeddings:
-            print(f"[FolderScanner] Copying: {image_filename} to {non_embedded_images_folder}")
-            os.system(
-                f"cp {image_filename} {non_embedded_images_folder}"
-            )
-
         for embedding_filename in embedding_filenames_to_be_deleted:
             print(f"[FolderScanner] Deleting: {embedding_filename}")
             os.system(
                 f"rm {embedding_filename}"
             )
 
-        return (non_embedded_images_folder,)    
+        return (image_filenames_without_embeddings,)
+
+class LoadPosEmbeds:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "cache_dir": ("STRING", {"default": "eden_images/xander_big"}),
+            }
+        }
+    RETURN_TYPES = ("EMBEDS",)
+    RETURN_NAMES = ("pos_embed",)
+    FUNCTION = "run"
+
+    CATEGORY = "Eden 🌱"
+
+    def run(
+        self,
+        cache_dir
+    ):
+        filenames = get_filenames_in_a_folder(folder = cache_dir)
+        all_embedding_filenames = find_all_filenames_with_extension(
+            filenames = filenames,
+            extensions = [".pth"]
+        )
+        embeds = [
+            torch.load(f) for f in all_embedding_filenames
+        ]
+        embeds = torch.stack(embeds)
+        return (embeds,)

@@ -472,6 +472,69 @@ class LoadRandomImage:
         return (output_image,)
 
 
+class LoadImagesByFilename:
+    def __init__(self):
+        self.img_extensions = [".png", ".jpg", ".jpeg", ".bmp", ".webp"]
+
+    @classmethod
+    def INPUT_TYPES(s):
+        input_dir = folder_paths.get_input_directory()
+        files = [f for f in os.listdir(input_dir) if os.path.isfile(os.path.join(input_dir, f))]
+
+        return {
+            "required": {
+                    "filename": ("LIST",),
+                    "max_num_images": ("INT", {"default": None}),
+                    "seed": ("INT", {"default": 0, "min": 0, "max": 100000}),
+                    "sort": ("BOOLEAN", {"default": False}),
+                    "loop_sequence": ("BOOLEAN", {"default": False}),
+                }
+        }
+
+    CATEGORY = "Eden 🌱"
+    RETURN_TYPES = ("IMAGE",)
+    FUNCTION = "load_image"
+
+    def load_image(self, filename: list, max_num_images, seed, sort, loop_sequence):
+        """
+        Loads images from a list of filenames as input: `filename`
+        """
+        files = filename
+
+        random.seed(seed)
+        random.shuffle(files)
+
+        if max_num_images == 0:
+            max_num_images = None
+        image_paths = files[:max_num_images]
+
+        if sort:
+            image_paths = sorted(image_paths)
+
+        imgs = [Image.open(image_path) for image_path in image_paths]
+        output_images = []
+        for img in imgs:
+            img = ImageOps.exif_transpose(img)
+            if img.mode == 'I':
+                img = img.point(lambda i: i * (1 / 255))
+            image = img.convert("RGB")
+            image = np.array(image).astype(np.float32) / 255.0
+            output_images.append(image)
+
+        if loop_sequence:
+            # Make sure the last image is the same as the first image:
+            output_images.append(output_images[0])
+
+        if len(output_images) > 1:
+            output_images = get_uniformly_sized_crops(output_images, target_n_pixels=1024**2)
+            output_images = [torch.from_numpy(output_image)[None,] for output_image in output_images]
+            output_image = torch.cat(output_images, dim=0)
+        else:
+            output_image = torch.from_numpy(output_images[0])[None,]
+
+        return (output_image,)
+
+
 class GetRandomFile:
 
     @classmethod
