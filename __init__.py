@@ -9,7 +9,7 @@ from img_utils.hist_matcher import HistogramMatching
 from logic.logic_nodes import *
 from img_utils.animation import Animation_RGB_Mask
 from eden_utils.lora_utils import Eden_Lora_Loader
-from ip_adapter_utils.random_rotate import IPAdapterRandomRotateEmbeds, SaveExplorationState, FolderScanner, SavePosEmbeds, LoadPosEmbeds
+from ip_adapter_utils.random_rotate import IPAdapterRandomRotateEmbeds, SaveExplorationState, FolderScanner, SavePosEmbeds, Mix_IP_Embeddings
 from video_utils.video_interpolation import VideoFrameSelector
 
 NODE_CLASS_MAPPINGS = {
@@ -22,7 +22,6 @@ NODE_CLASS_MAPPINGS = {
     "LoadRandomImage": LoadRandomImage,
     "VAEDecode_to_folder": VAEDecode_to_folder,
     "HistogramMatching": HistogramMatching,
-    "SaveImageAdvanced": SaveImageAdvanced,
     "LatentTypeConversion": LatentTypeConversion,
     "IMG_resolution_multiple_of": IMG_resolution_multiple_of,
     "Eden_Compare": Eden_Compare,
@@ -44,6 +43,6 @@ NODE_CLASS_MAPPINGS = {
     "Eden_Lora_Loader": Eden_Lora_Loader,
     "VideoFrameSelector": VideoFrameSelector,
     "LoadImagesByFilename": LoadImagesByFilename,
-    "LoadPosEmbeds": LoadPosEmbeds
+    "Mix_IP_Embeddings": Mix_IP_Embeddings
 }
 

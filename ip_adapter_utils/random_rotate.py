@@ -9,9 +9,24 @@ from typing import List
 
 
 def get_id_from_filename(filename):
-    ## image_id of images/scoobydoo.jpg = scoobydoo
-    image_id = os.path.basename(filename).split(".")[0]
+    """
+    Extract the image ID from a given filename.
+    Args:
+        filename (str): The path to the file.
+    Returns:
+        str: The extracted image ID.
+    
+    """
+    filename = str(filename)
+    basename = os.path.basename(filename)
+    # Handle case where there might be no extension or multiple dots
+    image_id, _ = os.path.splitext(basename)
+    
+    if not image_id:
+        return ""
+
     return image_id
+
 
 def find_all_filenames_with_extension(filenames: List[str], extensions: List[str]) -> List[str]:
     result = []
@@ -163,25 +178,6 @@ import urllib.request
 import zipfile
 import os
 
-EMBEDDINGS_DIR = "custom_nodes/eden_comfy_pipelines/ip_adapter_utils/img_embeds"
-
-if not os.path.exists(EMBEDDINGS_DIR):
-    # download the folder zip:
-    url = "https://storage.googleapis.com/public-assets-xander/A_workbox/img_embeds.zip"
-    
-    # download the .zipfile:
-
-    print(f"Downloading {url}...")
-    urllib.request.urlretrieve(url, "img_embeds.zip")
-
-    # unzip the folder:
-    with zipfile.ZipFile("img_embeds.zip", 'r') as zip_ref:
-        zip_ref.extractall(os.path.dirname(EMBEDDINGS_DIR))
-
-    # remove the .zip file:
-    os.remove("img_embeds.zip")
-
-
 class IPAdapterRandomRotateEmbeds:
     @classmethod
     def INPUT_TYPES(s):
@@ -304,7 +300,7 @@ class SavePosEmbeds:
         cache_dir: str,
         non_embedded_image_filenames: str,
     ):
-        assert pos_embed.ndim == 3, f"Expected batch to have 3 dims (batch, 257, 1280) but got: {pos_embed.ndim} dims"
+        assert pos_embed.ndim == 3, f"Expected batch to have 3 dims but got: {pos_embed.ndim} dims"
         assert len(non_embedded_image_filenames) == pos_embed.shape[0], f"Expected the batch size of pos_embed ({pos_embed.shape[0]}) to be the same as the number of images found in non_embedded_images_folder: {len(non_embedded_image_filenames)}. non_embedded_image_filenames: {non_embedded_image_filenames}"
 
         all_image_ids = [
@@ -399,14 +395,14 @@ class FolderScanner:
 
         return (image_filenames_without_embeddings,)
 
-class LoadPosEmbeds:
+class Mix_IP_Embeddings:
     @classmethod
     def INPUT_TYPES(s):
         return {
             "required": {
                 "cache_dir": ("STRING", {"default": "eden_images/xander_big"}),
                 "num_samples": ("INT", {"default": 4, "min": 1}),
-                "num_samples_from_cache_dir_per_element":  ("INT", {"default": 4, "min": 1}),
+                "num_style_components":  ("INT", {"default": 4, "min": 1}),
                 "target_pos_embed": ("EMBEDS", ),
                 "strength": ("FLOAT", {"default": 0.8, "min": 0.0, "max": 1.0, "step": 0.05}),
             }
@@ -421,7 +417,7 @@ class LoadPosEmbeds:
         self,
         cache_dir,
         num_samples: int,
-        num_samples_from_cache_dir_per_element: int,
+        num_style_components: int,
         target_pos_embed,
         strength: float
     ):
@@ -434,6 +430,6 @@ class LoadPosEmbeds:
             strength=strength,
             embeds = target_pos_embed,
             num_samples=num_samples,
-            num_elements=num_samples_from_cache_dir_per_element
+            num_elements=num_style_components
         )
         return (combination, combination.shape[0])
