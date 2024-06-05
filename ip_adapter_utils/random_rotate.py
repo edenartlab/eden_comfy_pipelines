@@ -113,7 +113,7 @@ def load_random_image_embeddings(embed_dir):
     embeddings = []
 
     for p in [f for f in os.listdir(embed_dir) if f.endswith(".pth")]:
-        embedding = ExplorationState.from_file(filename = os.path.join(embed_dir,p)).sample_embed
+        embedding = torch.load(os.path.join(embed_dir,p))
         embeddings.append(embedding)
 
     embeddings = torch.stack(embeddings).squeeze()
@@ -127,10 +127,8 @@ def load_random_image_embeddings(embed_dir):
     return embeddings, np.mean(norms)
 
 
-def random_linear_combination(embed_dir, strength, embeds, num_samples, num_elements = 2):
-    """
-    TODO: num_elements should be an arg in comfy
-    """
+def random_linear_combination(embed_dir, strength, embeds, num_samples, num_elements = 2) -> torch.tensor:
+
     print("Applying random linear combination")
     random_embeddings, avg_norm = load_random_image_embeddings(embed_dir)
     new_embeds = []
@@ -153,12 +151,12 @@ def random_linear_combination(embed_dir, strength, embeds, num_samples, num_elem
         # re-normalize:
         linear_combination = linear_combination / torch.norm(linear_combination) * avg_norm
         new_embed = (1-strength) * embeds + strength * linear_combination
-
         # renormalize:
         new_embed = new_embed / torch.norm(new_embed) * avg_norm
         new_embeds.append(new_embed)
-
-    return torch.stack(new_embeds).squeeze()
+    output_embed = torch.stack(new_embeds).squeeze()
+    assert output_embed.shape[0] == num_samples
+    return output_embed
 
 
 import urllib.request
@@ -406,25 +404,35 @@ class LoadPosEmbeds:
         return {
             "required": {
                 "cache_dir": ("STRING", {"default": "eden_images/xander_big"}),
+                "num_samples": ("INT", {"default": 4, "min": 1}),
+                "num_samples_from_cache_dir_per_element":  ("INT", {"default": 4, "min": 1}),
+                "target_pos_embed": ("EMBEDS", ),
+                "strength": ("FLOAT", {"default": 0.8, "min": 0.0, "max": 1.0, "step": 0.05}),
             }
         }
-    RETURN_TYPES = ("EMBEDS",)
-    RETURN_NAMES = ("pos_embed",)
+    RETURN_TYPES = ("EMBEDS", "INT")
+    RETURN_NAMES = ("pos_embed", "batch_size")
     FUNCTION = "run"
 
     CATEGORY = "Eden 🌱"
 
     def run(
         self,
-        cache_dir
+        cache_dir,
+        num_samples: int,
+        num_samples_from_cache_dir_per_element: int,
+        target_pos_embed,
+        strength: float
     ):
-        filenames = get_filenames_in_a_folder(folder = cache_dir)
-        all_embedding_filenames = find_all_filenames_with_extension(
-            filenames = filenames,
-            extensions = [".pth"]
+        """
+        target_pos_embed.shape: 1, 257, 1280
+        all_loaded_embeds.shape: num_images_in_dir, 257, 1280
+        """
+        combination = random_linear_combination(
+            embed_dir=cache_dir,
+            strength=strength,
+            embeds = target_pos_embed,
+            num_samples=num_samples,
+            num_elements=num_samples_from_cache_dir_per_element
         )
-        embeds = [
-            torch.load(f) for f in all_embedding_filenames
-        ]
-        embeds = torch.stack(embeds)
-        return (embeds,)
+        return (combination, combination.shape[0])
