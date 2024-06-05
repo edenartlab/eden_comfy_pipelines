@@ -331,6 +331,7 @@ class FolderScanner:
         return {
             "required": {
                 "cache_dir": ("STRING", {"default": "eden_images/xander_big"}),
+                "seed": ("INT",{"default": 0}),
             }
         }
     
