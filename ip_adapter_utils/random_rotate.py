@@ -341,7 +341,7 @@ class FolderScanner:
 
     CATEGORY = "Eden 🌱"
     
-    def run(self, cache_dir: str,):
+    def run(self, cache_dir, seed = 0):
         """
         expects image_folder to be a folder containing both images and embeddings.
         ideally, it should contain pairs of image and their corresponding IP adapter embeddings as:
