@@ -12,21 +12,8 @@ import imghdr
 
 ###########################################################################
 
-"""
-Below is some dirty path hacks 
-to make sure we can import comfyUI modules
-This can probably be cleaned up and done better
-"""
-
-from pathlib import Path
-parent_dir = str(Path(__file__).resolve().parent.parent)
-if parent_dir not in sys.path:
-    sys.path.append(parent_dir)
-
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "../comfy"))
-
 # Import comfyUI modules:
-from comfy.cli_args import args
+from cli_args import args
 import folder_paths
 
 ###########################################################################
@@ -37,6 +24,76 @@ import psutil
 def print_available_memory():
     memory = psutil.virtual_memory()
     print(f"Available memory: {memory.available / 1024 / 1024 / 1024:.2f} GB")
+
+
+class SaveImageAdvanced:
+    def __init__(self):
+        self.output_dir = folder_paths.get_output_directory()
+        self.compress_level = 4
+
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": 
+                    {"images": ("IMAGE", ),
+                     "filename_prefix": ("STRING", {"default": "ComfyUI"}),
+                     "add_timestamp": ("BOOLEAN", {"default": True}),
+                     "save_metadata_json": ("BOOLEAN", {"default": True}),
+                     },
+                "hidden": {"prompt": "PROMPT", "extra_pnginfo": "EXTRA_PNGINFO"},
+                }
+
+    RETURN_TYPES = ()
+    FUNCTION = "save_images"
+
+    OUTPUT_NODE = True
+
+    CATEGORY = "Eden 🌱"
+
+    def save_images(self, images, add_timestamp, save_metadata_json, filename_prefix="ComfyUI", prompt=None, extra_pnginfo=None):
+        full_output_folder, filename, counter, subfolder, filename_prefix = folder_paths.get_save_image_path(filename_prefix, self.output_dir, images[0].shape[1], images[0].shape[0])
+        results = list()
+
+        timestamp_str = time.strftime("%Y%m%d-%H%M%S")
+        os.makedirs(full_output_folder, exist_ok = True)
+        
+        for image in images:
+            i = 255. * image.cpu().numpy()
+            img = Image.fromarray(np.clip(i, 0, 255).astype(np.uint8))
+            metadata = None
+            if not args.disable_metadata:
+                metadata = PngInfo()
+                metadata_dict = {}
+                if prompt is not None:
+                    metadata.add_text("prompt", json.dumps(prompt))
+                    metadata_dict["prompt"] = prompt
+                if extra_pnginfo is not None:
+                    for x in extra_pnginfo:
+                        metadata.add_text(x, json.dumps(extra_pnginfo[x]))
+                        metadata_dict[x] = extra_pnginfo[x]
+
+            if add_timestamp:
+                file = f"{filename_prefix}_{timestamp_str}_{counter:05}.png"
+            else:
+                file = f"{filename_prefix}_{counter:05}_.png"
+            
+            img.save(os.path.join(full_output_folder, file), pnginfo=metadata, compress_level=self.compress_level)
+            results.append({
+                "filename": file,
+                "subfolder": subfolder,
+                "type": "output"
+            })
+
+            if save_metadata_json and not args.disable_metadata:
+                json_path = os.path.join(full_output_folder, file.replace(".png", ".json"))
+                with open(json_path, "w") as f:
+                    json.dump(metadata_dict, f, indent=4)                
+
+            counter += 1
+
+        return { "ui": { "images": results } }
+
+
+
 
 class LatentTypeConversion:
     """

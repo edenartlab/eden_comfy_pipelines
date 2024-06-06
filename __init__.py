@@ -9,7 +9,7 @@ from img_utils.hist_matcher import HistogramMatching
 from logic.logic_nodes import *
 from img_utils.animation import Animation_RGB_Mask
 from eden_utils.lora_utils import Eden_Lora_Loader
-from ip_adapter_utils.random_rotate import IPAdapterRandomRotateEmbeds, SaveExplorationState, FolderScanner, SavePosEmbeds, Mix_IP_Embeddings
+from ip_adapter_utils.moodmix_utils import *
 from video_utils.video_interpolation import VideoFrameSelector
 
 NODE_CLASS_MAPPINGS = {
@@ -36,13 +36,15 @@ NODE_CLASS_MAPPINGS = {
     "GetRandomFile": GetRandomFile,
     "Animation_RGB_Mask": Animation_RGB_Mask,
     "ImageDescriptionNode": ImageDescriptionNode,
-    "IPAdapterRandomRotateEmbeds": IPAdapterRandomRotateEmbeds,
-    "SaveExplorationState": SaveExplorationState,
     "FolderScanner": FolderScanner,
     "SavePosEmbeds": SavePosEmbeds,
     "Eden_Lora_Loader": Eden_Lora_Loader,
     "VideoFrameSelector": VideoFrameSelector,
     "LoadImagesByFilename": LoadImagesByFilename,
-    "Mix_IP_Embeddings": Mix_IP_Embeddings
+    "Random_Style_Mixture": Random_Style_Mixture,
+    "Linear_Combine_IP_Embeds": Linear_Combine_IP_Embeds,
+    "SaveImageAdvanced": SaveImageAdvanced,
+    "Load_Embeddings_From_Folder": Load_Embeddings_From_Folder,
+    "Get_Prefixed_Imgs": Get_Prefixed_Imgs
 }
 
