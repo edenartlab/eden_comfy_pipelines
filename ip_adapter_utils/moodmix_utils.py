@@ -48,48 +48,6 @@ def get_filenames_in_a_folder(folder: str):
     return files
 
 
-
-def random_linear_combination(embed_dir, strength, embeds, num_samples, num_elements = 2) -> torch.tensor:
-
-    """
-    Create a random linear combination of (IP-adapter) embeddings by sampling
-    a few (num_elements) random embedding vectors and creating a linear combination of them
-
-
-    TODO: this function re-loads all the embeddings every time, not ideal
-
-    """
-
-    random_embeddings, avg_norm = load_random_embeddings(embed_dir)
-    new_embeds = []
-
-    for i in range(num_samples):
-        random_weights = np.random.uniform(0.3, 0.7, num_elements)
-        random_weights = random_weights / np.mean(random_weights)
-
-        indices = np.random.choice(range(len(random_embeddings)), num_elements, replace=False)
-        print(f"Sampled indices: {indices} with weights: {random_weights}")
-
-        weights = np.zeros(len(random_embeddings))
-        weights[indices] = random_weights
-
-        weights = torch.tensor(weights).to(embeds.device)
-
-        # create a new random IP embedding by using the random weights (linear combination) to sum along the first axis of the random embeddings
-        linear_combination = torch.sum(random_embeddings * weights.unsqueeze(1).unsqueeze(1), axis=0)
-
-        # re-normalize:
-        linear_combination = linear_combination / torch.norm(linear_combination) * avg_norm
-        new_embed = (1-strength) * embeds + strength * linear_combination
-
-        # re-normalize (just to be sure):
-        new_embed = new_embed / torch.norm(new_embed) * avg_norm
-        new_embeds.append(new_embed)
-
-    output_embed = torch.stack(new_embeds).squeeze()
-
-    return output_embed
-
 def centre_crop_images(images, target_resolution):
     processed_images = []
 
@@ -217,7 +175,6 @@ class SavePosEmbeds:
                 pos_embed[batch_idx],
                 f = save_filename
             )
-            print(f"[SavePosEmbeds] Saved: {save_filename}")
         
         return (cache_dir,)
 
@@ -378,6 +335,7 @@ class Random_Style_Mixture:
                 "avg_embed_norm": ("FLOAT",  {"default": 300, "min": 0.0, "max": 500, "step": 0.5}),
                 "num_samples": ("INT", {"default": 4, "min": 1}),
                 "num_style_components":  ("INT", {"default": 4, "min": 1}),
+                "min_weight": ("FLOAT", {"default": 0.2, "min": 0.0, "max": 1.0, "step": 0.01}),
             }
         }
     RETURN_TYPES = ("EMBEDS", "INT")
@@ -391,6 +349,7 @@ class Random_Style_Mixture:
         avg_embed_norm,
         num_samples: int,
         num_style_components: int,
+        min_weight: float
     ):
 
         style_directions = []
@@ -404,7 +363,7 @@ class Random_Style_Mixture:
             selected_style_embeddings = style_embeddings[indices]
 
             # Sample the style image weights to use:
-            random_weights = np.random.uniform(0.3, 0.7, num_style_components)
+            random_weights = np.random.uniform(min_weight, 1.0, num_style_components)
             random_weights = random_weights / np.mean(random_weights)
             random_weights = torch.tensor(random_weights).to(style_embeddings.device)
 
