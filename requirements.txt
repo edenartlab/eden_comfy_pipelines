@@ -3,3 +3,4 @@ open_clip_torch
 openai
 python-dotenv
 scikit-learn
+matplotlib
