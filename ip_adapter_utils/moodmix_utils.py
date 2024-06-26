@@ -95,6 +95,13 @@ class Get_Prefixed_Imgs:
     CATEGORY = "Eden 🌱"
     
     def run(self, folder, filename_prefix, max_n_imgs, seed = 0):
+
+        if not os.path.exists(folder):
+            print(f"Couldnt find preference images folder {folder}, not using anchor images!")
+            dummy_imgs_numpy = np.random.rand(256, 256, 3)
+            dummy_imgs = torch.from_numpy(dummy_imgs_numpy)[None,]
+            return (dummy_imgs, False)
+
         # Load the most recent preference img:
         img_paths = sorted([os.path.join(folder, f) for f in os.listdir(folder) if filename_prefix in f])
         img_paths = img_paths[::-1]
@@ -130,8 +137,6 @@ class Get_Prefixed_Imgs:
                 anchor_images = torch.cat(anchor_images, dim=0)
             else:
                 anchor_images = torch.from_numpy(anchor_images[0])[None,]
-
-        print(anchor_images.shape)
 
         return (anchor_images, use_anchor,)
 
