@@ -45,6 +45,7 @@ NODE_CLASS_MAPPINGS = {
     "Linear_Combine_IP_Embeds": Linear_Combine_IP_Embeds,
     "SaveImageAdvanced": SaveImageAdvanced,
     "Load_Embeddings_From_Folder": Load_Embeddings_From_Folder,
-    "Get_Prefixed_Imgs": Get_Prefixed_Imgs
+    "Get_Prefixed_Imgs": Get_Prefixed_Imgs,
+    "WidthHeightPicker": WidthHeightPicker
 }
 

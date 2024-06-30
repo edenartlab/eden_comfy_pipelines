@@ -26,6 +26,39 @@ def print_available_memory():
     print(f"Available memory: {memory.available / 1024 / 1024 / 1024:.2f} GB")
 
 
+class WidthHeightPicker:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": 
+                    {"width":  ("INT", {"default": 512}),
+                     "height":  ("INT", {"default": 512}),
+                     "output_multiplier":  ("FLOAT", {"default": 0.5}),
+                     "multiple_off":  ("INT", {"default": 64, "min": 1, "max": 264}),
+                     }
+                }
+
+    RETURN_TYPES = ("INT","INT",)
+    RETURN_NAMES = ("width","height",)
+    FUNCTION = "compute_resolution"
+    OUTPUT_NODE = False
+    CATEGORY = "Eden 🌱"
+
+    def compute_resolution(self, width, height, output_multiplier, multiple_off):
+        width = int(width * output_multiplier)
+        height = int(height * output_multiplier)
+
+        # round to closest multiple of multiple_off:
+        width = int(round(width / multiple_off) * multiple_off)
+        height = int(round(height / multiple_off) * multiple_off)
+
+        print(f"Using final resolution: width x height = {width} x {height}")
+
+        return width, height
+
+
+
+
+
 class SaveImageAdvanced:
     def __init__(self):
         self.output_dir = folder_paths.get_output_directory()
