@@ -43,7 +43,7 @@ def compute_sampling_indices(total_n_frames, target_n_frames, verbose=0):
 def compute_frame_parameters(video_info, target_video_speedup_factor, output_fps, source_sampling_fps_range = [7,12], n_tests = 20):
     # Extract relevant data from video_info dictionary
     source_fps     = video_info['source_fps']
-    total_n_frames = video_info['source_frame_count']
+    total_n_frames = video_info['loaded_frame_count']
 
     if source_fps < source_sampling_fps_range[0]:
         select_frame_indices = list(range(total_n_frames))
