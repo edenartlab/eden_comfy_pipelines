@@ -4,3 +4,4 @@ openai
 python-dotenv
 scikit-learn
 matplotlib
+scikit-image
