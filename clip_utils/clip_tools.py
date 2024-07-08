@@ -47,7 +47,8 @@ class CLIP_Interrogator:
             }
         }
 
-    RETURN_TYPES = ("STRING",)
+    RETURN_TYPES = ("STRING","STRING")
+    RETURN_NAMES = ("full_prompt", "blip_caption")
     FUNCTION = "interrogate"
     CATEGORY = "Eden 🌱"
 
@@ -77,6 +78,8 @@ class CLIP_Interrogator:
             prompt = ci.interrogate_fast(pil_image, caption = prepend_caption)
         else:
             prompt = ci.interrogate(pil_image, caption = prepend_caption)
+
+        blip_caption = ci.generate_caption(pil_image)
             
         prompt = self.clean_prompt(prompt)
 
@@ -96,7 +99,7 @@ class CLIP_Interrogator:
                 f.write(prompt)
             print(f"Saved interrogated prompt to {save_prompt_to_txt_file}")
 
-        return (prompt,)
+        return (prompt, blip_caption)
     
     def load_ci(self, clip_model_path=None):
         global global_interrogator_model
