@@ -81,6 +81,7 @@ class CLIP_Interrogator:
 
         blip_caption = ci.generate_caption(pil_image)
             
+        blip_caption = self.clean_prompt(blip_caption)
         prompt = self.clean_prompt(prompt)
 
         print(f"Interogated prompt: {prompt}")

@@ -36,6 +36,7 @@ NODE_CLASS_MAPPINGS = {
     "GetRandomFile": GetRandomFile,
     "Animation_RGB_Mask": Animation_RGB_Mask,
     "ImageDescriptionNode": ImageDescriptionNode,
+    "Eden_gpt4_node": Eden_gpt4_node,
     "FolderScanner": FolderScanner,
     "SavePosEmbeds": SavePosEmbeds,
     "Eden_Lora_Loader": Eden_Lora_Loader,

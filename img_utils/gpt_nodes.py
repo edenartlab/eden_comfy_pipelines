@@ -17,7 +17,44 @@ except:
     print("WARNING: Could not find OPENAI_API_KEY in .env, disabling gpt prompt generation.")
 
 
-# adapted from https://github.com/AppleBotzz/ComfyUI_LLMVISION
+class Eden_gpt4_node:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "max_token": ("INT", {"default": 100}),
+                "model": (["gpt-4o", "gpt-4-turbo"], {"default": "gpt-4o"}),
+                "prompt": ("STRING", {"multiline": True, "default": "Write a poem about ComfyUI"}),
+                "seed": ("INT", {"default": 0}),
+            }
+        }
+
+    RETURN_TYPES = ("STRING",)
+    FUNCTION = "gpt4_completion"
+    CATEGORY = "Eden 🌱"
+
+    def gpt4_completion(self, max_token, model, prompt, seed):
+        try:
+
+            if not client:
+                return "An OpenAI API key is required for GPT-4 Vision. Make sure to place a .env file in the root directory of eden_comfy_pipelines with your secret API key. Make sure to never share your API key with anyone."
+
+            response = client.chat.completions.create(
+                    model=model,
+                    seed=seed,
+                    messages=[
+                        {"role": "system", "content": "You are a helpful assistant."},
+                        {"role": "user", "content": prompt},
+                    ],
+                    max_tokens=max_token
+            )
+
+            gpt_completion = response.choices[0].message.content
+            print(f"GPT4 completion:\n{gpt_completion}")
+            return (gpt_completion,)
+        except Exception as e:
+            return (f"Error: {str(e)}",)
+
 
 class ImageDescriptionNode:
     @classmethod
