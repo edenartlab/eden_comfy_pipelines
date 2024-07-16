@@ -97,6 +97,7 @@ class VideoFrameSelector:
                 "target_video_speedup_factor": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 10.0}),
                 "min_source_sampling_fps": ("INT", {"default": 8, "min": 1, "max": 24}),
                 "max_source_sampling_fps": ("INT", {"default": 12, "min": 1, "max": 24}),
+                "frame_load_cap": ("INT", {"default": 0, "min": 1, "max": 1000}),
                 }
         }
 
@@ -105,13 +106,17 @@ class VideoFrameSelector:
     RETURN_NAMES = ("Selected_frames","multiplier","frame_rate",)
     FUNCTION = "select_frames"
 
-    def select_frames(self, input_frames, video_info, output_fps, target_video_speedup_factor, min_source_sampling_fps, max_source_sampling_fps):
+    def select_frames(self, input_frames, video_info, output_fps, target_video_speedup_factor, min_source_sampling_fps, max_source_sampling_fps, frame_load_cap):
         
         # Compute the optimal subset of frames to sample from the source video:
         select_frame_indices, output_fps, frame_multiplier = compute_frame_parameters(video_info, target_video_speedup_factor, output_fps, source_sampling_fps_range=[min_source_sampling_fps, max_source_sampling_fps])
 
         # Select the frames from the input_frames:
         selected_frames = input_frames[select_frame_indices]
+
+        if frame_load_cap > 0:
+            # Limit the number of frames to be loaded:
+            selected_frames = selected_frames[:frame_load_cap]
 
         return (selected_frames, frame_multiplier, output_fps,)
 
