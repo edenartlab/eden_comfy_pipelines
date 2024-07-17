@@ -13,7 +13,7 @@ import numpy as np
 from PIL import Image
 
 sys.path.append('..')
-from general_utils import find_comfy_models_dir
+import folder_paths
 
 def comfy_tensor_to_pil(tensor):
     # Clone the tensor and detach it from the computation graph
@@ -64,7 +64,7 @@ class CLIP_Interrogator:
             
         pil_image = comfy_tensor_to_pil(image[0])
 
-        clip_model_dir = os.path.join(find_comfy_models_dir(), "clip")
+        clip_model_dir = os.path.join(str(folder_paths.models_dir), "clip")
         os.makedirs(clip_model_dir, exist_ok=True)
 
         ci = self.load_ci(clip_model_path=clip_model_dir)
@@ -109,7 +109,7 @@ class CLIP_Interrogator:
             if global_interrogator_model:
                 self.ci = global_interrogator_model
             else:
-                BLIP_MODEL_DIR = os.path.abspath(os.path.join(find_comfy_models_dir(), "blip"))
+                BLIP_MODEL_DIR = os.path.abspath(os.path.join(str(folder_paths.models_dir), "blip"))
                 self.ci = Interrogator(Config(clip_model_path=clip_model_path, clip_model_name="ViT-L-14/openai", cache_dir=BLIP_MODEL_DIR))
                 
             if self.keep_model_alive:
