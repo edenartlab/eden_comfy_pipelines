@@ -1,7 +1,6 @@
-clip-interrogator>=0.6.0
+clip-interrogator==0.6.0
 open_clip_torch
 openai
 python-dotenv
 scikit-learn
-matplotlib
-scikit-image
+transformers

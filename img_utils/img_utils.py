@@ -1,7 +1,6 @@
 import cv2
 import torch
 import numpy as np
-from scipy import misc
 from PIL import Image
 
 def preprocess_lab(lab):
@@ -99,24 +98,3 @@ def lab_to_rgb(lab):
 		srgb_pixels = (rgb_pixels * 12.92 * linear_mask) + (((rgb_pixels+0.000001) ** (1/2.4) * 1.055) - 0.055) * exponential_mask
 	
 		return torch.reshape(srgb_pixels, lab.shape)
-
-
-'''
-img = cv2.imread('data/test_rgb.jpg',1)/ 255.0
-img = img[:, :, (2, 1, 0)]
-#img = misc.imread('data/test_rgb.jpg')/255.0
-img = torch.from_numpy(img).cuda()
-lab = rgb_to_lab(img)
-L_chan, a_chan, b_chan = preprocess_lab(lab)
-
-lab = deprocess_lab(L_chan, a_chan, b_chan)
-true_image = lab_to_rgb(lab)
-true_image = np.round(true_image.cpu()* 255.0)
-true_image = np.uint8(true_image) 
-#np.save('torch.npy',np.array(img.cpu()))
-#conv_img = Image.fromarray(true_image, 'RGB')
-#conv_img.save('converted_test_pytorch.jpg')
-true_image = true_image[:, :, (2, 1, 0)]
-cv2.imwrite('pytorch.jpg',true_image)
-#import pdb; pdb.set_trace()    
-'''

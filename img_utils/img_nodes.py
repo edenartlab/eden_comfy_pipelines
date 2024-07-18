@@ -613,14 +613,7 @@ class HIST_matcher_depracted:
         hist_input = cv2.calcHist([input_img_ycrcb], [0], None, [256], [0, 256])
 
         # Compute the average histogram of the output images
-        hist_output_avg = np.mean([cv2.calcHist([img], [0], None, [256], [0, 256]) for img in output_imgs_ycrcb], axis=0)
-
-        # plot the two histograms on the same graph:
-        import matplotlib.pyplot as plt
-        plt.plot(hist_input, label="Input")
-        plt.plot(hist_output_avg, label="Output")
-        plt.legend()
-        plt.savefig("histograms.png")
+        hist_output_avg = np.mean([cv2.calcHist([img], [0], None, [256], [0, 256]) for img in output_imgs_ycrcb], axis=0)   
 
         # Create a lookup table to map the average output histogram to the input histogram
         cumulative_input = np.cumsum(hist_input) / sum(hist_input)
