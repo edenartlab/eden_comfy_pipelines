@@ -592,7 +592,7 @@ class HIST_matcher_depracted:
 
     RETURN_TYPES = ("IMAGE",)
     FUNCTION = "hist_match"
-    CATEGORY = "Eden 🌱"
+    CATEGORY = "Eden 🌱/Image"
 
     def hist_match(self, src_image, dst_images):
         # bs, h, w, c = src_image.shape
@@ -670,7 +670,7 @@ class IMG_resolution_multiple_of:
 
     RETURN_TYPES = ("IMAGE",)
     FUNCTION = "pad"
-    CATEGORY = "Eden 🌱"
+    CATEGORY = "Eden 🌱/Image"
 
     def pad(self, image, multiple_of):
         bs, h, w, c = image.shape
@@ -698,7 +698,7 @@ class IMG_padder:
 
     RETURN_TYPES = ("IMAGE",)
     FUNCTION = "pad"
-    CATEGORY = "Eden 🌱"
+    CATEGORY = "Eden 🌱/Image"
 
     def pad(self, image, pad_fraction, pad_location="bottom"):
 
@@ -746,7 +746,7 @@ class IMG_blender:
 
     RETURN_TYPES = ("IMAGE",)
     FUNCTION = "blend"
-    CATEGORY = "Eden 🌱"
+    CATEGORY = "Eden 🌱/Image"
 
     def blend(self, image1, image2, image1_weight = 0.5):
 
@@ -782,7 +782,7 @@ class IMG_unpadder:
 
     RETURN_TYPES = ("IMAGE",)
     FUNCTION = "unpad"
-    CATEGORY = "Eden 🌱"
+    CATEGORY = "Eden 🌱/Image"
 
     def unpad(self, image, unpad_fraction, unpad_location = "bottom"):
 
@@ -822,7 +822,7 @@ class IMG_scaler:
 
     RETURN_TYPES = ("IMAGE",)
     FUNCTION = "apply_math"
-    CATEGORY = "Eden 🌱"
+    CATEGORY = "Eden 🌱/Image"
 
     def apply_math(self, image, math_string):
         '''
@@ -915,7 +915,7 @@ class ConvertToGrayscale:
 
     RETURN_TYPES = ("IMAGE",)
     FUNCTION = "convert_to_grayscale"
-    CATEGORY = "Eden 🌱"
+    CATEGORY = "Eden 🌱/Image"
 
     def convert_to_grayscale(self, image):
         # Input is a torch tensor with shape (bs, c, h, w)

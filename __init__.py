@@ -4,6 +4,7 @@ sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
 from clip_utils.clip_tools import CLIP_Interrogator  
 from img_utils.img_nodes import *
+from img_utils.depth_nodes import *
 from img_utils.gpt_nodes import *
 from img_utils.hist_matcher import HistogramMatching
 from logic.logic_nodes import *
@@ -47,6 +48,8 @@ NODE_CLASS_MAPPINGS = {
     "SaveImageAdvanced": SaveImageAdvanced,
     "Load_Embeddings_From_Folder": Load_Embeddings_From_Folder,
     "Get_Prefixed_Imgs": Get_Prefixed_Imgs,
-    "WidthHeightPicker": WidthHeightPicker
+    "WidthHeightPicker": WidthHeightPicker,
+    "DepthSlicer": DepthSlicer,
+    "ParallaxZoom": ParallaxZoom
 }
 
