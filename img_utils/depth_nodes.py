@@ -87,15 +87,16 @@ class DepthSlicer:
         masks = 1 - masks
 
         return (masks,)
+
 class ParallaxZoom:
     @classmethod
     def INPUT_TYPES(s):
         return {"required":
                 {"masks": ("IMAGE",),
                  "image_slices": ("IMAGE",),
-                 "foreground_zoom_factor": ("FLOAT", {"default": 1.1, "step": 0.01}),
-                 "background_zoom_factor": ("FLOAT", {"default": 1.05, "step": 0.01}),
-                 "shift_left": ("FLOAT", {"default": 0.1, "step": 0.01}),
+                 "foreground_zoom_factor": ("FLOAT", {"default": 1.1, "step": 0.001}),
+                 "background_zoom_factor": ("FLOAT", {"default": 1.05, "step": 0.001}),
+                 "pan_left": ("FLOAT", {"default": 0.1, "step": 0.001}),
                  "n_frames": ("INT", {"default": 25}),
                  "loop": ("BOOLEAN", {"default": False}),
                 }
@@ -105,6 +106,12 @@ class ParallaxZoom:
     RETURN_NAMES = ("frames","masks")
     FUNCTION = "zoom"
     CATEGORY = "Eden 🌱/Depth"
+    DESCRIPTION = """
+Apply 3D depth parallax to the input image to create a 3D video effect.
+Foreground and Background zoom factors control the amount of zoom applied to the respective layers.
+Pan Left controls the amount of horizontal shift applied to the image.
+All these values are the total fraction (relative to resolution) applied to the image over the full animation.
+"""
 
     @staticmethod
     def warp_affine(image, mask=None, zoom_factor=1.0, shift_factor=0.0):
@@ -124,15 +131,7 @@ class ParallaxZoom:
 
         return warped_image
 
-    def zoom(self, masks, image_slices, foreground_zoom_factor, background_zoom_factor, shift_left, n_frames, loop):
-        # Adjust for n_frames and looping
-        if loop:
-            n_frames = n_frames * 2 - 1  # Double the frames minus 1 for looping
-
-        foreground_zoom_factor = foreground_zoom_factor ** (1/((n_frames + 1) // 2))
-        background_zoom_factor = background_zoom_factor ** (1/((n_frames + 1) // 2))
-        shift_left = shift_left / ((n_frames + 1) // 2)
-
+    def zoom(self, masks, image_slices, foreground_zoom_factor, background_zoom_factor, pan_left, n_frames, loop):
         masks = masks.numpy()
         image_slices = image_slices.numpy()
 
@@ -146,96 +145,27 @@ class ParallaxZoom:
         for i in range(n_frames):
             print(f"Processing frame {i+1}/{n_frames}")
 
-            # Compute zoom and shift factors
-            if loop and i >= (n_frames + 1) // 2:
-                # Reverse direction for the second half when looping
-                frame_index = n_frames - i - 1
+            # Compute progress as a value between 0 and 1
+            progress = i / (n_frames - 1)
+
+            if loop:
+                # Full sine wave cycle for looping
+                angle = progress * np.pi * 2
+                factor = (np.sin(angle) + 1) / 2
             else:
-                frame_index = i
-
-            fg_zoom = foreground_zoom_factor ** frame_index
-            bg_zoom = background_zoom_factor ** ((n_frames + 1) // 2 - frame_index - 1)
-            fg_shift = -shift_left * frame_index
-
-            # Apply transformations
-            warped_foreground, warped_mask = self.warp_affine(foreground_image, foreground_mask, fg_zoom, fg_shift)
-            warped_background = self.warp_affine(background_image, zoom_factor=bg_zoom)
-
-            # Ensure the mask has 3 channels to match the image
-            warped_mask = np.stack([warped_mask] * 3, axis=-1)
-            foreground_masks.append(warped_mask)
-
-            # Combine foreground and background
-            final_image = warped_foreground * warped_mask + warped_background * (1 - warped_mask)
-            final_image = final_image[:, :, :3]
-
-            frames.append(final_image)
-
-        frames = torch.tensor(np.array(frames))
-        foreground_masks = torch.tensor(np.array(foreground_masks))
-
-        return (frames, foreground_masks)
-
-
-class ParallaxZoom_old:
-    @classmethod
-    def INPUT_TYPES(s):
-        return {"required":
-                {"masks": ("IMAGE",),
-                 "image_slices": ("IMAGE",),
-                 "foreground_zoom_factor": ("FLOAT", {"default": 1.1, "step": 0.01}),
-                 "background_zoom_factor": ("FLOAT", {"default": 1.05, "step": 0.01}),
-                 "shift_left": ("FLOAT", {"default": 0.1, "step": 0.01}),
-                 "n_frames": ("INT", {"default": 25}),
-                }
-               }
-
-    RETURN_TYPES = ("IMAGE","IMAGE")
-    RETURN_NAMES = ("frames","masks")
-    FUNCTION = "zoom"
-    CATEGORY = "Eden 🌱/Depth"
-
-    @staticmethod
-    def warp_affine(image, mask=None, zoom_factor=1.0, shift_factor=0.0):
-        h, w = image.shape[:2]
-        center = (w / 2, h / 2)
-
-        # Create the affine transformation matrix
-        M = cv2.getRotationMatrix2D(center, 0, zoom_factor)
-        M[0, 2] += shift_factor * w  # Add horizontal shift
-
-        # Apply the affine transformation
-        warped_image = cv2.warpAffine(image, M, (w, h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
-
-        if mask is not None:
-            warped_mask = cv2.warpAffine(mask, M, (w, h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
-            return warped_image, warped_mask
-
-        return warped_image
-
-    def zoom(self, masks, image_slices, foreground_zoom_factor, background_zoom_factor, shift_left, n_frames):
-        # Adjust for n_frames
-        foreground_zoom_factor = foreground_zoom_factor ** (1/n_frames)
-        background_zoom_factor = background_zoom_factor ** (1/n_frames)
-        shift_left = shift_left / n_frames
-
-        masks = masks.numpy()
-        image_slices = image_slices.numpy()
-
-        # Extract the images and masks
-        foreground_image = image_slices[0].copy()
-        background_image = image_slices[1].copy()
-        foreground_mask = masks[0,:,:,0].copy()
-
-        frames, foreground_masks = [], []
-
-        for i in range(n_frames):
-            print(f"Processing frame {i+1}/{n_frames}")
+                # Linear progression for non-looping
+                factor = progress
 
             # Compute zoom and shift factors
-            fg_zoom = foreground_zoom_factor ** i
-            bg_zoom = background_zoom_factor ** (n_frames - i - 1)
-            fg_shift = -shift_left * i
+            fg_zoom = 1 + (foreground_zoom_factor - 1) * factor
+            
+            # Adjust background zoom behavior
+            if background_zoom_factor >= 1:
+                bg_zoom = 1 + (background_zoom_factor - 1) * factor
+            else:
+                bg_zoom = 1 / background_zoom_factor - (1 / background_zoom_factor - 1) * factor
+            
+            fg_shift = -pan_left * factor
 
             # Apply transformations
             warped_foreground, warped_mask = self.warp_affine(foreground_image, foreground_mask, fg_zoom, fg_shift)
@@ -255,9 +185,6 @@ class ParallaxZoom_old:
         foreground_masks = torch.tensor(np.array(foreground_masks))
 
         return (frames, foreground_masks)
-
-
-
 
 
 if __name__ == "__main__":
