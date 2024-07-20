@@ -167,8 +167,7 @@ All these values are the total fraction (relative to resolution) applied to the 
         frames, foreground_masks = [], []
 
         for i in range(n_frames):
-            print(f"Processing frame {i+1}/{n_frames}")
-
+            
             # Compute progress as a value between 0 and 1
             progress = i / (n_frames - 1)
 
