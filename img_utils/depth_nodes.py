@@ -5,37 +5,96 @@ import torch
 import cv2
 import numpy as np
 from sklearn.cluster import KMeans
+from sklearn.preprocessing import StandardScaler
+from scipy.spatial.distance import cdist
 
-def smart_depth_slicing(img, n_slices):
-    # convert w,h torch tensor to numpy array:
-    img = img.numpy()
 
-    # Flatten the image and reshape for k-means
-    flat_img = img.flatten().reshape(-1, 1)
+class WeightedKMeans(KMeans):
+    def __init__(self, n_clusters=8, weights=None, **kwargs):
+        super().__init__(n_clusters=n_clusters, **kwargs)
+        self.weights = weights
 
-    # Apply k-means clustering
-    kmeans = KMeans(n_clusters=n_slices, random_state=42)
-    kmeans.fit(flat_img)
+    def fit(self, X):
+        if self.weights is None:
+            self.weights = np.ones(X.shape[1])
+        return super().fit(X)
 
-    # Sort the cluster centers
-    sorted_centers = np.sort(kmeans.cluster_centers_.flatten())
+    def _weighted_euclidean_distance(self, X, Y):
+        return cdist(X, Y, metric='wminkowski', w=self.weights, p=2)
 
-    print(f"Sorted cluster centers: {sorted_centers}")
+    def fit_predict(self, X, y=None, sample_weight=None):
+        return super().fit_predict(X, sample_weight=sample_weight)
 
-    # Create slices based on the midpoints between cluster centers
-    slices = []
-    thresholds = [0] + list((sorted_centers[:-1] + sorted_centers[1:]) / 2) + [1.0]
+    def fit_transform(self, X, y=None, sample_weight=None):
+        return super().fit_transform(X, sample_weight=sample_weight)
 
-    return thresholds
+    def transform(self, X):
+        return self._weighted_euclidean_distance(X, self.cluster_centers_)
+
+
+def smart_depth_slicing(rgb_img, depth_img, n_slices, rgb_weight, standardize_features):
+    depth_img = depth_img.numpy() if hasattr(depth_img, 'numpy') else depth_img
+    rgb_img = rgb_img.numpy() if hasattr(rgb_img, 'numpy') else rgb_img
+
+    # Reshape images
+    depth_flat = depth_img.reshape(-1, 1)
+    rgb_flat = rgb_img.reshape(-1, 3)
+
+    if rgb_weight != 0.0:
+        combined_features = np.hstack((depth_flat, rgb_flat))
+        weights = np.array([1, rgb_weight, rgb_weight, rgb_weight])
+    else:
+        combined_features = np.hstack((depth_flat))[:,np.newaxis]
+        weights = np.array([1])
+
+    if standardize_features:
+        scaler = StandardScaler()
+        combined_features = scaler.fit_transform(combined_features)
+
+    # Apply weighted k-means clustering
+    kmeans = WeightedKMeans(n_clusters=n_slices, weights=weights, random_state=42)
+    kmeans.fit(combined_features)
+
+    cluster_indices = kmeans.labels_
+
+    # Extract depth values from cluster centers
+    depth_centers = kmeans.cluster_centers_[:, 0]
+
+    # Sort the cluster centers based on depth
+    sorted_indices = np.argsort(depth_centers)
+    sorted_centers = depth_centers[sorted_indices]
+
+    # Reshape cluster_indices back to original image shape
+    cluster_indices = cluster_indices.reshape(depth_img.shape)
+
+    # Create a mapping from old cluster indices to new sorted indices
+    index_map = {old: new for new, old in enumerate(sorted_indices[::-1])}
+
+    # Apply the mapping to get sorted cluster indices
+    sorted_cluster_indices = np.vectorize(index_map.get)(cluster_indices)
+
+    # Create mask_images tensor
+    h, w = depth_img.shape
+    mask_images = torch.zeros((n_slices, h, w, 3), dtype=torch.float32)
+
+    # Fill mask_images with binary masks
+    for i in range(n_slices):
+        binary_mask = (sorted_cluster_indices == i)
+        mask_images[i] = torch.from_numpy(np.repeat(binary_mask[:, :, np.newaxis], 3, axis=2))
+    
+    return mask_images
+
 
 
 class DepthSlicer:
     @classmethod
     def INPUT_TYPES(s):
         return {"required": 
-                    {"depth_map":  ("IMAGE",),
-                     "n_slices":  ("INT", {"default": 3}),
-                     "slope":  ("FLOAT", {"default": 1.0}),
+                    {"image": ("IMAGE",),
+                     "depth_map":  ("IMAGE",),
+                     "n_slices":  ("INT", {"default": 2}),
+                     "rgb_weight":  ("FLOAT", {"default": 0.0, "step": 0.01}),
+                     "standardize_features": ("BOOLEAN", {"default": False}),
                      }
                 }
 
@@ -44,47 +103,12 @@ class DepthSlicer:
     FUNCTION = "slice"
     CATEGORY = "Eden 🌱/Depth"
 
-    def slice(self, depth_map, n_slices, slope):
-        print(depth_map.shape)
-        # torch.Size([1, 2048, 2048, 3])
-
+    def slice(self, image, depth_map, n_slices, rgb_weight, standardize_features):
         # Use only one channel (they're identical)
         depth = depth_map[0, :, :, 0]
 
-        # Calculate min and max depth values
-        depth_min = torch.min(depth)
-        depth_max = torch.max(depth)
-
-        # Calculate the range and adjust it with the slope
-        depth_range = depth_max - depth_min
-        depth_range *= slope
-
         # Calculate thresholds
-        thresholds = torch.linspace(depth_min, depth_min + depth_range, n_slices + 1)
-        print(f"Min: {depth_min}, Max: {depth_max}, Range: {depth_range}")
-        print(f"Thresholds: {thresholds}")
-
-        thresholds = smart_depth_slicing(depth, n_slices)
-        print(f"Thresholds: {thresholds}")
-
-        # Initialize the output tensor
-        masks = torch.zeros((n_slices, depth_map.shape[1], depth_map.shape[2], 3), dtype=torch.float32)
-
-        # Create masks for each slice
-        for i in range(n_slices):
-            lower = thresholds[i]
-            upper = thresholds[i+1]
-
-            print(f"Slice {i}: lower:{lower} - upper:{upper}")
-
-            # Create binary mask
-            mask = ((depth >= lower) & (depth < upper)).float()
-
-            # Add to masks
-            masks[i, :, :, :] = mask.unsqueeze(-1).repeat(1, 1, 3)
-
-        # invert the masks
-        masks = 1 - masks
+        masks = smart_depth_slicing(image, depth, n_slices, rgb_weight, standardize_features)
 
         return (masks,)
 
