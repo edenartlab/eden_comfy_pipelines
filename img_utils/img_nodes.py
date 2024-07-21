@@ -935,6 +935,15 @@ import torch.nn.functional as F
 
 class AspectPadImageForOutpainting:
     ASPECT_RATIO_MAP = {
+        "SDXL - 1:1 square 1024x1024": (1024, 1024),
+        "SDXL - 4:3 landscape 1152x896": (1152, 896),
+        "SDXL - 3:2 landscape 1216x832": (1216, 832),
+        "SDXL - 16:9 landscape 1344x768": (1344, 768),
+        "SDXL - 21:9 landscape 1536x640": (1536, 640),
+        "SDXL - 3:4 portrait 896x1152": (896, 1152),
+        "SDXL - 5:8 portrait 832x1216": (832, 1216),
+        "SDXL - 9:16 portrait 768x1344": (768, 1344),
+        "SDXL - 9:21 portrait 640x1536": (640, 1536),
         "SD1.5 - 1:1 square 512x512": (512, 512),
         "SD1.5 - 2:3 portrait 512x768": (512, 768),
         "SD1.5 - 3:4 portrait 512x682": (512, 682),
@@ -943,15 +952,6 @@ class AspectPadImageForOutpainting:
         "SD1.5 - 16:9 cinema 910x512": (910, 512),
         "SD1.5 - 1.85:1 cinema 952x512": (952, 512),
         "SD1.5 - 2:1 cinema 1024x512": (1024, 512),
-        "SDXL - 1:1 square 1024x1024": (1024, 1024),
-        "SDXL - 3:4 portrait 896x1152": (896, 1152),
-        "SDXL - 5:8 portrait 832x1216": (832, 1216),
-        "SDXL - 9:16 portrait 768x1344": (768, 1344),
-        "SDXL - 9:21 portrait 640x1536": (640, 1536),
-        "SDXL - 4:3 landscape 1152x896": (1152, 896),
-        "SDXL - 3:2 landscape 1216x832": (1216, 832),
-        "SDXL - 16:9 landscape 1344x768": (1344, 768),
-        "SDXL - 21:9 landscape 1536x640": (1536, 640),
     }
 
     @classmethod
