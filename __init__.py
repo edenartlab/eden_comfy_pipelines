@@ -50,6 +50,7 @@ NODE_CLASS_MAPPINGS = {
     "Get_Prefixed_Imgs": Get_Prefixed_Imgs,
     "WidthHeightPicker": WidthHeightPicker,
     "DepthSlicer": DepthSlicer,
-    "ParallaxZoom": ParallaxZoom
+    "ParallaxZoom": ParallaxZoom,
+    "AspectPadImageForOutpainting": AspectPadImageForOutpainting
 }
 

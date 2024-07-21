@@ -928,3 +928,83 @@ class ConvertToGrayscale:
         else:
             raise ValueError(f"Input image must have 1 or 3 channels, but got {c} channels. Image shape = {image.shape}")
         return (image,)
+
+import torch
+import torch.nn.functional as F
+    
+
+class AspectPadImageForOutpainting:
+    ASPECT_RATIO_MAP = {
+        "SD1.5 - 1:1 square 512x512": (512, 512),
+        "SD1.5 - 2:3 portrait 512x768": (512, 768),
+        "SD1.5 - 3:4 portrait 512x682": (512, 682),
+        "SD1.5 - 3:2 landscape 768x512": (768, 512),
+        "SD1.5 - 4:3 landscape 682x512": (682, 512),
+        "SD1.5 - 16:9 cinema 910x512": (910, 512),
+        "SD1.5 - 1.85:1 cinema 952x512": (952, 512),
+        "SD1.5 - 2:1 cinema 1024x512": (1024, 512),
+        "SDXL - 1:1 square 1024x1024": (1024, 1024),
+        "SDXL - 3:4 portrait 896x1152": (896, 1152),
+        "SDXL - 5:8 portrait 832x1216": (832, 1216),
+        "SDXL - 9:16 portrait 768x1344": (768, 1344),
+        "SDXL - 9:21 portrait 640x1536": (640, 1536),
+        "SDXL - 4:3 landscape 1152x896": (1152, 896),
+        "SDXL - 3:2 landscape 1216x832": (1216, 832),
+        "SDXL - 16:9 landscape 1344x768": (1344, 768),
+        "SDXL - 21:9 landscape 1536x640": (1536, 640),
+    }
+
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "image": ("IMAGE",),
+                "aspect_ratio": (list(s.ASPECT_RATIO_MAP.keys()), {"default": "SD1.5 - 1:1 square 512x512"}),
+                "justification": (["top/left", "center", "bottom/right"], {"default": "center"}),
+            }
+        }
+
+    RETURN_TYPES = ("IMAGE", "INT", "INT", "INT", "INT")
+    FUNCTION = "fit_and_calculate_padding"
+    CATEGORY = "Eden 🌱/Image"
+
+    def fit_and_calculate_padding(self, image, aspect_ratio, justification):
+        bs, h, w, c = image.shape
+
+        # Get the canvas dimensions from the aspect ratio map
+        canvas_width, canvas_height = self.ASPECT_RATIO_MAP[aspect_ratio]
+
+        # Calculate the aspect ratios
+        image_aspect_ratio = w / h
+        canvas_aspect_ratio = canvas_width / canvas_height
+
+        # Determine the new dimensions
+        if image_aspect_ratio > canvas_aspect_ratio:
+            new_width = canvas_width
+            new_height = int(canvas_width / image_aspect_ratio)
+        else:
+            new_height = canvas_height
+            new_width = int(canvas_height * image_aspect_ratio)
+
+        # Resize the image
+        resized_image = torch.nn.functional.interpolate(image.permute(0, 3, 1, 2), size=(new_height, new_width), mode='bicubic', align_corners=False)
+        resized_image = resized_image.permute(0, 2, 3, 1)
+
+        # Calculate padding
+        if justification == "center":
+            left = (canvas_width - new_width) // 2
+            right = canvas_width - new_width - left
+            top = (canvas_height - new_height) // 2
+            bottom = canvas_height - new_height - top
+        elif justification == "top/left":
+            left = 0
+            right = canvas_width - new_width
+            top = 0
+            bottom = canvas_height - new_height
+        elif justification == "bottom/right":
+            left = canvas_width - new_width
+            right = 0
+            top = canvas_height - new_height
+            bottom = 0
+
+        return (resized_image, left, top, right, bottom)
