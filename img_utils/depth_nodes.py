@@ -1,4 +1,5 @@
 import torch
+import torch.nn.functional as F
 from PIL import Image
 import sys, os, time
 import torch
@@ -7,7 +8,6 @@ import numpy as np
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
 from scipy.spatial.distance import cdist
-
 
 class WeightedKMeans(KMeans):
     def __init__(self, n_clusters=8, weights=None, **kwargs):
@@ -112,6 +112,7 @@ class DepthSlicer:
 
         return (masks,)
 
+
 class ParallaxZoom:
     @classmethod
     def INPUT_TYPES(s):
@@ -120,7 +121,7 @@ class ParallaxZoom:
                  "image_slices": ("IMAGE",),
                  "foreground_zoom_factor": ("FLOAT", {"default": 1.1, "step": 0.001}),
                  "background_zoom_factor": ("FLOAT", {"default": 1.05, "step": 0.001}),
-                 "pan_left": ("FLOAT", {"default": 0.1, "step": 0.001}),
+                 "pan_left": ("FLOAT", {"default": 0.1, "min": -1.0, "max": 1.0, "step": 0.001}),
                  "n_frames": ("INT", {"default": 25}),
                  "loop": ("BOOLEAN", {"default": False}),
                 }
@@ -188,7 +189,9 @@ All these values are the total fraction (relative to resolution) applied to the 
             else:
                 bg_zoom = 1 / background_zoom_factor - (1 / background_zoom_factor - 1) * factor
             
-            fg_shift = -pan_left * factor
+            fg_shift = pan_left/2 - pan_left * factor
+
+            print(f"Frame {i}, fg_shift: {fg_shift}")
 
             # Apply transformations
             warped_foreground, warped_mask = self.warp_affine(foreground_image, foreground_mask, fg_zoom, fg_shift)
@@ -210,35 +213,92 @@ All these values are the total fraction (relative to resolution) applied to the 
         return (frames, foreground_masks)
 
 
+
+def load_and_prepare_data(depth_map_path, image_path):
+    # Load depth map
+    depth_map = Image.open(depth_map_path).convert('L')  # Convert to grayscale
+    depth_map = transforms.ToTensor()(depth_map).squeeze(0)  # Remove channel dimension
+
+    # Load image
+    image = Image.open(image_path).convert('RGB')
+    image = transforms.ToTensor()(image)
+
+    # Ensure depth map and image have the same size
+    if depth_map.shape != image.shape[1:]:
+        depth_map = transforms.Resize(image.shape[1:])(depth_map.unsqueeze(0)).squeeze(0)
+
+    # Normalize depth map to [0, 1] range if it's not already
+    if depth_map.max() > 1:
+        depth_map = depth_map / 255.0
+
+    return depth_map, image
+
+
+def perspective_warp_torch(depth_map, image, affine_matrix):
+    # Ensure inputs are PyTorch tensors and on the same device
+    device = image.device
+    depth_map = depth_map.to(device)
+    affine_matrix = affine_matrix.to(device)
+
+    # Get image dimensions
+    channels, height, width = image.shape
+
+    # Create meshgrid of pixel coordinates
+    y, x = torch.meshgrid(torch.arange(height, device=device), torch.arange(width, device=device), indexing='ij')
+    
+    # Stack x, y, and depth values
+    points = torch.stack([x.flatten(), y.flatten(), depth_map.flatten(), torch.ones_like(x.flatten())], dim=-1)
+    
+    # Apply affine transformation
+    transformed_points = torch.matmul(affine_matrix, points.T).T
+    
+    # Normalize homogeneous coordinates
+    transformed_points = transformed_points[:, :3] / transformed_points[:, 3:]
+    
+    # Reshape back to image dimensions
+    new_x = transformed_points[:, 0].reshape(height, width)
+    new_y = transformed_points[:, 1].reshape(height, width)
+    
+    # Scale coordinates to [-1, 1] range for grid_sample
+    new_x = 2 * (new_x / (width - 1)) - 1
+    new_y = 2 * (new_y / (height - 1)) - 1
+    
+    # Stack coordinates for grid_sample
+    grid = torch.stack([new_x, new_y], dim=-1).unsqueeze(0)
+    
+    # Apply the transformation using grid_sample
+    warped_image = F.grid_sample(image.unsqueeze(0), grid, mode='bicubic', padding_mode='reflection', align_corners=True)
+    
+    return warped_image.squeeze(0)
+
 if __name__ == "__main__":
 
-    mask0, mask1 = cv2.imread("mask0.png"), cv2.imread("mask1.png")
-    img0, img1 = cv2.imread("img0.png"), cv2.imread("img1.png")
-    # Convert images from BGR to RGB
-    img0 = cv2.cvtColor(img0, cv2.COLOR_BGR2RGB)
-    img1 = cv2.cvtColor(img1, cv2.COLOR_BGR2RGB)
+    import torch
+    from torchvision import transforms
+    from PIL import Image
 
-    masks = np.stack([mask0, mask1], axis=0) / 255.
-    image_slices = np.stack([img0, img1], axis=0) / 255.
-    masks = torch.tensor(masks)
-    image_slices = torch.tensor(image_slices)
+    # Example usage:
+    depth_map_path = 'depth.png'
+    image_path = 'img.png'
 
-    parallax = ParallaxZoom()
-    frames, = parallax.zoom(masks, image_slices, 1.12, 1.05, 0.05, 40)
-    frames = frames.numpy()
+    depth_map, image = load_and_prepare_data(depth_map_path, image_path)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    # Save frames as a video:
-    print("Writing video...")
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # Use MP4V codec
-    out = cv2.VideoWriter('output.mp4', fourcc, 30, (1024,1024))  # Change fps to 30 and file extension to .mp4
-    for i, frame in enumerate(frames):
-        # Convert frame to uint8 and BGR color space
-        frame = (frame * 255).astype(np.uint8)
-        frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-        out.write(frame_bgr)
+    # Create an example affine matrix (identity transform with some translation)
+    zoom_factor = 0.1
+    affine_matrix = torch.tensor([
+        [1, 0, 0, 0],
+        [0, 1, 0, 0],
+        [0, 0, 1, 0],
+        [0, 0, zoom_factor, 1]
+    ], dtype=torch.float32)
 
-        # Save frames as images
-        if len(frames) < 10:
-            cv2.imwrite(f"frame_{i}.jpg", frame_bgr)
+    warped_image = perspective_warp_torch(
+        depth_map,
+        image,
+        affine_matrix
+    )
 
-    out.release()
+    # If you want to visualize or save the result:
+    from torchvision.utils import save_image
+    save_image(warped_image, 'warped_image.jpg')
