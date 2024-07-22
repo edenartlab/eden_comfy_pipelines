@@ -6,3 +6,5 @@ scikit-learn
 transformers
 matplotlib
 scikit-image
+setuptools>=70.1.0
+pip>=setuptools>=24.1.2
