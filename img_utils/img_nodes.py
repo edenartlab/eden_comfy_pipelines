@@ -930,24 +930,27 @@ class ConvertToGrayscale:
         return (image,)
 
 class AspectPadImageForOutpainting:
+    """
+    A node to calculate args for default comfy node 'Pad Image For Outpainting'
+    """
     ASPECT_RATIO_MAP = {
-        "SDXL_1:1_square_1024x1024": (1024, 1024),
-        "SDXL_4:3_landscape_1152x896": (1152, 896),
-        "SDXL_3:2_landscape_1216x832": (1216, 832),
-        "SDXL_16:9_landscape_1344x768": (1344, 768),
-        "SDXL_21:9_landscape_1536x640": (1536, 640),
-        "SDXL_3:4_portrait_896x1152": (896, 1152),
-        "SDXL_5:8_portrait_832x1216": (832, 1216),
-        "SDXL_9:16_portrait_768x1344": (768, 1344),
-        "SDXL_9:21_portrait_640x1536": (640, 1536),
-        "SD1.5_1:1_square_512x512": (512, 512),
-        "SD1.5_2:3_portrait_512x768": (512, 768),
-        "SD1.5_3:4_portrait_512x682": (512, 682),
-        "SD1.5_3:2_landscape_768x512": (768, 512),
-        "SD1.5_4:3_landscape_682x512": (682, 512),
-        "SD1.5_16:9_cinema_910x512": (910, 512),
-        "SD1.5_1.85:1_cinema_952x512": (952, 512),
-        "SD1.5_2:1_cinema_1024x512": (1024, 512),
+        "SDXL_1-1_square_1024x1024": (1024, 1024),
+        "SDXL_4-3_landscape_1152x896": (1152, 896),
+        "SDXL_3-2_landscape_1216x832": (1216, 832),
+        "SDXL_16-9_landscape_1344x768": (1344, 768),
+        "SDXL_21-9_landscape_1536x640": (1536, 640),
+        "SDXL_3-4_portrait_896x1152": (896, 1152),
+        "SDXL_5-8_portrait_832x1216": (832, 1216),
+        "SDXL_9-16_portrait_768x1344": (768, 1344),
+        "SDXL_9-21_portrait_640x1536": (640, 1536),
+        "SD15_1-1_square_512x512": (512, 512),
+        "SD15_2-3_portrait_512x768": (512, 768),
+        "SD15_3-4_portrait_512x682": (512, 682),
+        "SD15_3-2_landscape_768x512": (768, 512),
+        "SD15_4-3_landscape_682x512": (682, 512),
+        "SD15_16-9_cinema_910x512": (910, 512),
+        "SD15_37-20_cinema_952x512": (952, 512),
+        "SD15_2-1_cinema_1024x512": (1024, 512),
     }
 
     @classmethod
@@ -956,7 +959,7 @@ class AspectPadImageForOutpainting:
             "required": {
                 "image": ("IMAGE",),
                 "aspect_ratio": (list(s.ASPECT_RATIO_MAP.keys()), {"default": "SD1.5 - 1:1 square 512x512"}),
-                "justification": (["top/left", "center", "bottom/right"], {"default": "center"}),
+                "justification": (["top-left", "center", "bottom-right"], {"default": "center"}),
             }
         }
 
@@ -992,12 +995,12 @@ class AspectPadImageForOutpainting:
             right = canvas_width - new_width - left
             top = (canvas_height - new_height) // 2
             bottom = canvas_height - new_height - top
-        elif justification == "top/left":
+        elif justification == "top-left":
             left = 0
             right = canvas_width - new_width
             top = 0
             bottom = canvas_height - new_height
-        elif justification == "bottom/right":
+        elif justification == "bottom-right":
             left = canvas_width - new_width
             right = 0
             top = canvas_height - new_height
