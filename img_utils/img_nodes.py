@@ -929,10 +929,6 @@ class ConvertToGrayscale:
             raise ValueError(f"Input image must have 1 or 3 channels, but got {c} channels. Image shape = {image.shape}")
         return (image,)
 
-import torch
-import torch.nn.functional as F
-    
-
 class AspectPadImageForOutpainting:
     ASPECT_RATIO_MAP = {
         "SDXL_1:1_square_1024x1024": (1024, 1024),
