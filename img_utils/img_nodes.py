@@ -896,7 +896,7 @@ def to_grayscale(images, keep_dims=True):
         #grayscale_images = grayscale_images.permute(0, 2, 3, 1)
         # Repeat the grayscale image 3 times to match the original dimensions.
         grayscale_images = grayscale_images.repeat(1, 1, 1, 3)
-
+    
 
     return grayscale_images
 
@@ -965,6 +965,7 @@ class AspectPadImageForOutpainting:
         }
 
     RETURN_TYPES = ("IMAGE", "INT", "INT", "INT", "INT")
+    NAMES = ("image", "new_width", "new_height", "padding_top", "padding_left")
     FUNCTION = "fit_and_calculate_padding"
     CATEGORY = "Eden 🌱/Image"
 
