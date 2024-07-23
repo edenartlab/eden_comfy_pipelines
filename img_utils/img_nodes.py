@@ -276,6 +276,7 @@ class MaskFromRGB:
 
 from sklearn.cluster import KMeans
 from .img_utils import lab_to_rgb, rgb_to_lab
+import numpy as np
 
 class MaskFromRGB_KMeans:
     @classmethod
@@ -316,10 +317,20 @@ class MaskFromRGB_KMeans:
         lab_images_reshaped = lab_images.view(n*w*h, 3)
 
         # Apply KMeans clustering
-        print("Applying KMeans clustering to find masking colors...")
         kmeans = KMeans(n_clusters=n_color_clusters, random_state=42)
         cluster_labels = kmeans.fit_predict(lab_images_reshaped.cpu().numpy())
-        cluster_labels = torch.from_numpy(cluster_labels).to("cpu").view(n, h, w)
+        
+        # Calculate average luminance for each cluster
+        cluster_centers = kmeans.cluster_centers_
+        cluster_luminance = cluster_centers[:, 0]  # L channel in LAB color space
+        
+        # Sort cluster indices based on luminance:
+        sorted_indices = np.argsort(cluster_luminance)
+        index_map = {old: new for new, old in enumerate(sorted_indices)}
+        
+        # Map the cluster labels to new sorted indices
+        sorted_cluster_labels = np.vectorize(index_map.get)(cluster_labels)
+        cluster_labels = torch.from_numpy(sorted_cluster_labels).to("cpu").view(n, h, w)
 
         # Transform the cluster_labels into masks:
         masks = torch.zeros(n, 8, h, w)
@@ -354,7 +365,6 @@ class MaskFromRGB_KMeans:
         masks = F.interpolate(masks, size=(image.shape[1], image.shape[2]), mode='bicubic', align_corners=False)
 
         return masks[:, 0], masks[:, 1], masks[:, 2], masks[:, 3], masks[:, 4], masks[:, 5], masks[:, 6], masks[:, 7]
-
 
 
 
@@ -459,10 +469,14 @@ class LoadRandomImage:
         random.seed(seed)
         random.shuffle(files)
 
-        image_paths = files[:n_images]
-
         if sort:
-            image_paths = sorted(image_paths)
+            files = sorted(files)
+
+        print(f"Sorted files:")
+        for f in files:
+            print(f)
+
+        image_paths = files[:n_images]
 
         imgs = [Image.open(image_path) for image_path in image_paths]
         output_images = []
