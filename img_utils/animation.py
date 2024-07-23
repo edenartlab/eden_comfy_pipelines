@@ -1,21 +1,20 @@
 import numpy as np
 import os
-import torch
 import cv2
-from skimage.color import lab2rgb
+import torch
 
 class Animation:
-    def __init__(self, width, height, total_frames, num_colors, bands_visible_per_frame, angle, mode):
+    def __init__(self, width, height, total_frames, num_shades, bands_visible_per_frame, angle, mode):
         self.width = width
         self.height = height
         self.total_frames = total_frames
-        self.num_colors = num_colors
+        self.num_shades = num_shades
         self.bands_visible_per_frame = bands_visible_per_frame
         self.angle = angle
         self.mode = mode
 
-        # Define a set of equally spaced colors in Lab space
-        self.colors = np.linspace([0, -128, -128], [100, 127, 127], self.num_colors)
+        # Define a set of equally spaced grayscale values from white (255) to black (0)
+        self.shades = np.linspace(255, 0, self.num_shades, dtype=np.uint8)
 
     def generate_frame(self, frame_number):
         if self.mode == "panning_rectangles":
@@ -40,23 +39,17 @@ class Animation:
     def concentric_triangles(self, frame_number):
         x, y = np.meshgrid(np.linspace(-1, 1, self.width), np.linspace(-1, 1, self.height))
         
-        # Calculate the total duration for each color's triangle to expand
-        frames_per_color = self.total_frames // self.num_colors
+        frames_per_shade = self.total_frames // self.num_shades
+        shade_idx = (frame_number // frames_per_shade) % self.num_shades
+        frame_in_shade = frame_number % frames_per_shade
         
-        # Calculate the current color index and the frame within the current color's duration
-        color_idx = (frame_number // frames_per_color) % self.num_colors
-        frame_in_color = frame_number % frames_per_color
+        max_radius = np.sqrt(2)
+        scale_factor = max_radius / frames_per_shade
+        current_radius = frame_in_shade * scale_factor
         
-        # Calculate the size of the triangle based on the frame within the current color's duration
-        max_radius = np.sqrt(2)  # Maximum distance from center to corner
-        scale_factor = max_radius / frames_per_color
-        current_radius = frame_in_color * scale_factor
+        triangle_shade_idx = shade_idx
+        background_shade_idx = (shade_idx + 1) % self.num_shades
         
-        # Determine the colors for the triangle and the background
-        triangle_color_idx = color_idx
-        background_color_idx = (color_idx + 1) % self.num_colors
-        
-        # Define the vertices of the equilateral triangle
         height = np.sqrt(3) / 2
         vertices = np.array([
             [0, 2 * height * current_radius],
@@ -64,7 +57,6 @@ class Animation:
             [current_radius, -height * current_radius]
         ])
 
-        # Vectorized approach to determine if points are inside the triangle
         def sign(p1, p2, p3):
             return (p1[:, :, 0] - p3[0]) * (p2[1] - p3[1]) - (p2[0] - p3[0]) * (p1[:, :, 1] - p3[1])
 
@@ -75,122 +67,94 @@ class Animation:
         
         mask = (d1 >= 0) & (d2 >= 0) & (d3 >= 0)
 
-        lab_frame = np.tile(self.colors[background_color_idx], (self.height, self.width, 1))
-        lab_frame[mask] = self.colors[triangle_color_idx]
+        frame = np.full((self.height, self.width), self.shades[background_shade_idx], dtype=np.uint8)
+        frame[mask] = self.shades[triangle_shade_idx]
 
-        frame_rgb = lab2rgb(lab_frame)
-        frame_rgb = (frame_rgb * 255).astype(np.uint8)
-        return frame_rgb
-
-
+        return cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
 
     def concentric_rectangles(self, frame_number):
         x, y = np.meshgrid(np.linspace(-self.width // 2, self.width // 2, self.width), np.linspace(-self.height // 2, self.height // 2, self.height))
 
-        # Calculate the maximum distance to the center for scaling
         max_distance = max(self.width, self.height) / 2
-
-        # Calculate the distance from the center
         distance_to_center = np.maximum(np.abs(x), np.abs(y))
-
-        # Scale factor to control the width of the bands
         scale_factor = max_distance / self.bands_visible_per_frame
 
-        phase_shift = (frame_number * self.num_colors / self.total_frames) % self.num_colors
-        color_indices = (distance_to_center / scale_factor + phase_shift) % self.num_colors
-        color_indices = np.floor(color_indices).astype(int)
+        phase_shift = (frame_number * self.num_shades / self.total_frames) % self.num_shades
+        shade_indices = (distance_to_center / scale_factor + phase_shift) % self.num_shades
+        shade_indices = np.floor(shade_indices).astype(int)
 
-        lab_frame = self.colors[color_indices]
-        frame_rgb = lab2rgb(lab_frame)
-        frame_rgb = (frame_rgb * 255).astype(np.uint8)
-        return frame_rgb
+        frame = self.shades[shade_indices]
+        return cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
 
     def concentric_circles(self, frame_number):
         x, y = np.meshgrid(np.linspace(-1, 1, self.width), np.linspace(-1, 1, self.height))
         radius = np.sqrt(x**2 + y**2)
         
-        # Scale factor to control the width of the bands
         scale_factor = 1 / self.bands_visible_per_frame
         
-        phase_shift = (frame_number * self.num_colors / self.total_frames) % self.num_colors
-        color_indices = (radius / scale_factor + phase_shift) % self.num_colors
-        color_indices = np.floor(color_indices).astype(int)
+        phase_shift = (frame_number * self.num_shades / self.total_frames) % self.num_shades
+        shade_indices = (radius / scale_factor + phase_shift) % self.num_shades
+        shade_indices = np.floor(shade_indices).astype(int)
         
-        lab_frame = self.colors[color_indices]
-        frame_rgb = lab2rgb(lab_frame)
-        frame_rgb = (frame_rgb * 255).astype(np.uint8)
-        return frame_rgb
+        frame = self.shades[shade_indices]
+        return cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
 
     def rotating_segments(self, frame_number):
         x, y = np.meshgrid(np.linspace(-1, 1, self.width), np.linspace(-1, 1, self.height))
         angle = np.arctan2(y, x)
         
-        # Normalize angle to range [0, 2*pi]
         angle = (angle + np.pi) % (2 * np.pi)
         
-        phase_shift = (frame_number * self.num_colors / self.total_frames) % self.num_colors
-        color_indices = ((angle / (2 * np.pi)) * self.num_colors + phase_shift) % self.num_colors
-        color_indices = np.floor(color_indices).astype(int)
+        phase_shift = (frame_number * self.num_shades / self.total_frames) % self.num_shades
+        shade_indices = ((angle / (2 * np.pi)) * self.num_shades + phase_shift) % self.num_shades
+        shade_indices = np.floor(shade_indices).astype(int)
         
-        lab_frame = self.colors[color_indices]
-        frame_rgb = lab2rgb(lab_frame)
-        frame_rgb = (frame_rgb * 255).astype(np.uint8)
-        return frame_rgb
+        frame = self.shades[shade_indices]
+        return cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
 
     def vertical_stripes(self, frame_number):
         x = np.linspace(0, self.width - 1, self.width)
         xv = np.tile(x, (self.height, 1))
         
         scale_factor = self.width / self.bands_visible_per_frame
-        phase_shift = (frame_number * self.num_colors / self.total_frames) % self.num_colors
-        color_indices = (xv / scale_factor + phase_shift) % self.num_colors
-        color_indices = np.floor(color_indices).astype(int)
+        phase_shift = (frame_number * self.num_shades / self.total_frames) % self.num_shades
+        shade_indices = (xv / scale_factor + phase_shift) % self.num_shades
+        shade_indices = np.floor(shade_indices).astype(int)
         
-        lab_frame = self.colors[color_indices]
-        frame_rgb = lab2rgb(lab_frame)
-        frame_rgb = (frame_rgb * 255).astype(np.uint8)
-        return frame_rgb
+        frame = self.shades[shade_indices]
+        return cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
 
     def horizontal_stripes(self, frame_number):
         y = np.linspace(0, self.height - 1, self.height)
         yv = np.tile(y[:, np.newaxis], (1, self.width))
         
         scale_factor = self.height / self.bands_visible_per_frame
-        phase_shift = (frame_number * self.num_colors / self.total_frames) % self.num_colors
-        color_indices = (yv / scale_factor + phase_shift) % self.num_colors
-        color_indices = np.floor(color_indices).astype(int)
+        phase_shift = (frame_number * self.num_shades / self.total_frames) % self.num_shades
+        shade_indices = (yv / scale_factor + phase_shift) % self.num_shades
+        shade_indices = np.floor(shade_indices).astype(int)
         
-        lab_frame = self.colors[color_indices]
-        frame_rgb = lab2rgb(lab_frame)
-        frame_rgb = (frame_rgb * 255).astype(np.uint8)
-        return frame_rgb
+        frame = self.shades[shade_indices]
+        return cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
 
     def progressive_rotating_segment(self, frame_number):
         x, y = np.meshgrid(np.linspace(-1, 1, self.width), np.linspace(-1, 1, self.height))
         angle = np.arctan2(y, x)
         
-        # Normalize angle to range [0, 2*pi]
         angle = (angle + np.pi) % (2 * np.pi)
         
-        # Determine the current edge's angle
-        total_rotations = self.total_frames // self.num_colors
+        total_rotations = self.total_frames // self.num_shades
         rotation_progress = (frame_number % total_rotations) / total_rotations
         current_angle = rotation_progress * 2 * np.pi
         
-        # Determine the current colors
-        current_color_idx = (frame_number // total_rotations) % self.num_colors
-        next_color_idx = (current_color_idx + 1) % self.num_colors
+        current_shade_idx = (frame_number // total_rotations) % self.num_shades
+        next_shade_idx = (current_shade_idx + 1) % self.num_shades
         
-        # Create mask based on the rotating edge
         mask = angle < current_angle
         
-        # Create the frame with a static background color and a rotating edge
-        lab_frame = np.tile(self.colors[current_color_idx], (self.height, self.width, 1))
-        lab_frame[mask] = self.colors[next_color_idx]
+        frame = np.full((self.height, self.width), self.shades[current_shade_idx], dtype=np.uint8)
+        frame[mask] = self.shades[next_shade_idx]
         
-        frame_rgb = lab2rgb(lab_frame)
-        frame_rgb = (frame_rgb * 255).astype(np.uint8)
-        return frame_rgb
+        return cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
 
     def create_animation(self):
         frames = []
@@ -204,7 +168,7 @@ class Animation:
         os.makedirs(os.path.dirname(output_file), exist_ok=True)
         
         height, width, layers = frames[0].shape
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # Codec for .mp4 file
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         video = cv2.VideoWriter(output_file, fourcc, fps, (width, height))
 
         for frame in frames:

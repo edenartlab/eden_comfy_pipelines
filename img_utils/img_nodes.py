@@ -276,6 +276,7 @@ class MaskFromRGB:
 
 from sklearn.cluster import KMeans
 from .img_utils import lab_to_rgb, rgb_to_lab
+import numpy as np
 
 class MaskFromRGB_KMeans:
     @classmethod
@@ -316,10 +317,20 @@ class MaskFromRGB_KMeans:
         lab_images_reshaped = lab_images.view(n*w*h, 3)
 
         # Apply KMeans clustering
-        print("Applying KMeans clustering to find masking colors...")
         kmeans = KMeans(n_clusters=n_color_clusters, random_state=42)
         cluster_labels = kmeans.fit_predict(lab_images_reshaped.cpu().numpy())
-        cluster_labels = torch.from_numpy(cluster_labels).to("cpu").view(n, h, w)
+        
+        # Calculate average luminance for each cluster
+        cluster_centers = kmeans.cluster_centers_
+        cluster_luminance = cluster_centers[:, 0]  # L channel in LAB color space
+        
+        # Sort cluster indices based on luminance:
+        sorted_indices = np.argsort(cluster_luminance)
+        index_map = {old: new for new, old in enumerate(sorted_indices)}
+        
+        # Map the cluster labels to new sorted indices
+        sorted_cluster_labels = np.vectorize(index_map.get)(cluster_labels)
+        cluster_labels = torch.from_numpy(sorted_cluster_labels).to("cpu").view(n, h, w)
 
         # Transform the cluster_labels into masks:
         masks = torch.zeros(n, 8, h, w)
@@ -354,7 +365,6 @@ class MaskFromRGB_KMeans:
         masks = F.interpolate(masks, size=(image.shape[1], image.shape[2]), mode='bicubic', align_corners=False)
 
         return masks[:, 0], masks[:, 1], masks[:, 2], masks[:, 3], masks[:, 4], masks[:, 5], masks[:, 6], masks[:, 7]
-
 
 
 
@@ -459,10 +469,14 @@ class LoadRandomImage:
         random.seed(seed)
         random.shuffle(files)
 
-        image_paths = files[:n_images]
-
         if sort:
-            image_paths = sorted(image_paths)
+            files = sorted(files)
+
+        print(f"Sorted files:")
+        for f in files:
+            print(f)
+
+        image_paths = files[:n_images]
 
         imgs = [Image.open(image_path) for image_path in image_paths]
         output_images = []
@@ -929,29 +943,28 @@ class ConvertToGrayscale:
             raise ValueError(f"Input image must have 1 or 3 channels, but got {c} channels. Image shape = {image.shape}")
         return (image,)
 
-import torch
-import torch.nn.functional as F
-    
-
 class AspectPadImageForOutpainting:
+    """
+    A node to calculate args for default comfy node 'Pad Image For Outpainting'
+    """
     ASPECT_RATIO_MAP = {
-        "SD1.5 - 1:1 square 512x512": (512, 512),
-        "SD1.5 - 2:3 portrait 512x768": (512, 768),
-        "SD1.5 - 3:4 portrait 512x682": (512, 682),
-        "SD1.5 - 3:2 landscape 768x512": (768, 512),
-        "SD1.5 - 4:3 landscape 682x512": (682, 512),
-        "SD1.5 - 16:9 cinema 910x512": (910, 512),
-        "SD1.5 - 1.85:1 cinema 952x512": (952, 512),
-        "SD1.5 - 2:1 cinema 1024x512": (1024, 512),
-        "SDXL - 1:1 square 1024x1024": (1024, 1024),
-        "SDXL - 3:4 portrait 896x1152": (896, 1152),
-        "SDXL - 5:8 portrait 832x1216": (832, 1216),
-        "SDXL - 9:16 portrait 768x1344": (768, 1344),
-        "SDXL - 9:21 portrait 640x1536": (640, 1536),
-        "SDXL - 4:3 landscape 1152x896": (1152, 896),
-        "SDXL - 3:2 landscape 1216x832": (1216, 832),
-        "SDXL - 16:9 landscape 1344x768": (1344, 768),
-        "SDXL - 21:9 landscape 1536x640": (1536, 640),
+        "SDXL_1-1_square_1024x1024": (1024, 1024),
+        "SDXL_4-3_landscape_1152x896": (1152, 896),
+        "SDXL_3-2_landscape_1216x832": (1216, 832),
+        "SDXL_16-9_landscape_1344x768": (1344, 768),
+        "SDXL_21-9_landscape_1536x640": (1536, 640),
+        "SDXL_3-4_portrait_896x1152": (896, 1152),
+        "SDXL_5-8_portrait_832x1216": (832, 1216),
+        "SDXL_9-16_portrait_768x1344": (768, 1344),
+        "SDXL_9-21_portrait_640x1536": (640, 1536),
+        "SD15_1-1_square_512x512": (512, 512),
+        "SD15_2-3_portrait_512x768": (512, 768),
+        "SD15_3-4_portrait_512x682": (512, 682),
+        "SD15_3-2_landscape_768x512": (768, 512),
+        "SD15_4-3_landscape_682x512": (682, 512),
+        "SD15_16-9_cinema_910x512": (910, 512),
+        "SD15_37-20_cinema_952x512": (952, 512),
+        "SD15_2-1_cinema_1024x512": (1024, 512),
     }
 
     @classmethod
@@ -960,7 +973,7 @@ class AspectPadImageForOutpainting:
             "required": {
                 "image": ("IMAGE",),
                 "aspect_ratio": (list(s.ASPECT_RATIO_MAP.keys()), {"default": "SD1.5 - 1:1 square 512x512"}),
-                "justification": (["top/left", "center", "bottom/right"], {"default": "center"}),
+                "justification": (["top-left", "center", "bottom-right"], {"default": "center"}),
             }
         }
 
@@ -997,12 +1010,12 @@ class AspectPadImageForOutpainting:
             right = canvas_width - new_width - left
             top = (canvas_height - new_height) // 2
             bottom = canvas_height - new_height - top
-        elif justification == "top/left":
+        elif justification == "top-left":
             left = 0
             right = canvas_width - new_width
             top = 0
             bottom = canvas_height - new_height
-        elif justification == "bottom/right":
+        elif justification == "bottom-right":
             left = canvas_width - new_width
             right = 0
             top = canvas_height - new_height

@@ -4,3 +4,5 @@ openai
 python-dotenv
 scikit-learn
 transformers
+matplotlib
+scikit-image
