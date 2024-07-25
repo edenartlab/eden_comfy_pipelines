@@ -17,7 +17,9 @@ class Animation:
         self.shades = np.linspace(255, 0, self.num_shades, dtype=np.uint8)
 
     def generate_frame(self, frame_number):
-        if self.mode == "panning_rectangles":
+        if self.mode == "zooming_spirals":
+            return self.zooming_spirals(frame_number)
+        elif self.mode == "panning_rectangles":
             return self.panning_rectangles(frame_number)
         elif self.mode == "concentric_circles":
             return self.concentric_circles(frame_number)
@@ -35,7 +37,30 @@ class Animation:
             return self.concentric_rectangles(frame_number)
         else:
             raise ValueError("Unknown mode")
-        
+
+    def zooming_spirals(self, frame_number):
+        x, y = np.meshgrid(np.linspace(-1, 1, self.width), np.linspace(-1, 1, self.height))
+        r = np.sqrt(x**2 + y**2)
+        theta = np.arctan2(y, x)
+
+        # Calculate the spiral pattern
+        spiral = (r + theta / (2 * np.pi)) % 1.0
+
+        # Calculate the zoom effect
+        zoom_factor = 1 + frame_number / self.total_frames
+        zoomed_spiral = (spiral * zoom_factor) % 1.0
+
+        # Calculate the rotation
+        rotation_speed = 2 * np.pi / self.total_frames
+        rotated_spiral = (zoomed_spiral + frame_number * rotation_speed) % 1.0
+
+        # Map the spiral values to shade indices
+        shade_indices = np.floor(rotated_spiral * self.num_shades).astype(int)
+
+        # Create the frame
+        frame = self.shades[shade_indices]
+        return cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+            
     def concentric_triangles(self, frame_number):
         x, y = np.meshgrid(np.linspace(-1, 1, self.width), np.linspace(-1, 1, self.height))
         
@@ -87,8 +112,13 @@ class Animation:
         return cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
 
     def concentric_circles(self, frame_number):
-        x, y = np.meshgrid(np.linspace(-1, 1, self.width), np.linspace(-1, 1, self.height))
-        radius = np.sqrt(x**2 + y**2)
+        center_x, center_y = self.width / 2, self.height / 2
+        y, x = np.ogrid[:self.height, :self.width]
+        
+        # Calculate distance from center, normalized by the shorter dimension
+        dist_from_center = np.sqrt((x - center_x)**2 + (y - center_y)**2)
+        max_radius = min(center_x, center_y)
+        radius = dist_from_center / max_radius
         
         scale_factor = 1 / self.bands_visible_per_frame
         
@@ -225,7 +255,7 @@ if __name__ == "__main__":
     angle = 90  # Rotation angle
 
     # Create animations with different modes
-    for mode in ["progressive_rotating_segment"]:
+    for mode in ["zooming_spirals"]:
         output_file = f'animation_videos/{mode}_{num_colors}_colors_angle_{angle}.mp4'
         animator = Animation(width, height, total_frames, num_colors, bands_visible_per_frame, angle, mode)
         animation_frames = animator.create_animation()
