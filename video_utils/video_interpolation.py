@@ -97,7 +97,7 @@ class VideoFrameSelector:
                 "target_video_speedup_factor": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 10.0}),
                 "min_source_sampling_fps": ("INT", {"default": 8, "min": 1, "max": 24}),
                 "max_source_sampling_fps": ("INT", {"default": 12, "min": 1, "max": 24}),
-                "frame_load_cap": ("INT", {"default": 0, "min": 1, "max": 1000}),
+                "frame_load_cap": ("INT", {"default": 0, "min": 0, "max": 1000}),
                 }
         }
 
