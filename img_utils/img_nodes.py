@@ -459,25 +459,21 @@ class LoadRandomImage:
     FUNCTION = "load_image"
 
     def load_image(self, folder, n_images, seed, sort, loop_sequence):
-        files = [os.path.join(folder, f) for f in os.listdir(folder)]
-        files = [f for f in files if os.path.isfile(f)]
+        image_paths = [os.path.join(folder, f) for f in os.listdir(folder)]
+        image_paths = [f for f in image_paths if os.path.isfile(f)]
         # filter using file extensions:
-        files = [f for f in files if any([f.endswith(ext) for ext in self.img_extensions])]
+        image_paths = [f for f in image_paths if any([f.endswith(ext) for ext in self.img_extensions])]
         # filter using image headers:
-        files = [f for f in files if imghdr.what(f)]
+        image_paths = [f for f in image_paths if imghdr.what(f)]
 
         random.seed(seed)
-        random.shuffle(files)
+        random.shuffle(image_paths)
 
         if sort:
-            files = sorted(files)
-
-        print(f"Sorted files:")
-        for f in files:
-            print(f)
+            image_paths = sorted(image_paths)
 
         if n_images > 0:
-            image_paths = files[:n_images]
+            image_paths = image_paths[:n_images]
 
         imgs = [Image.open(image_path) for image_path in image_paths]
         output_images = []
