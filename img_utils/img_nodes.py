@@ -447,7 +447,7 @@ class LoadRandomImage:
         return {
             "required": {
                     "folder": ("STRING", {"default": "."}),
-                    "n_images": ("INT", {"default": 1, "min": 1, "max": 100}),
+                    "n_images": ("INT", {"default": 1, "min": -1, "max": 100}),
                     "seed": ("INT", {"default": 0, "min": 0, "max": 100000}),
                     "sort": ("BOOLEAN", {"default": False}),
                     "loop_sequence": ("BOOLEAN", {"default": False}),
@@ -476,7 +476,8 @@ class LoadRandomImage:
         for f in files:
             print(f)
 
-        image_paths = files[:n_images]
+        if n_images > 0:
+            image_paths = files[:n_images]
 
         imgs = [Image.open(image_path) for image_path in image_paths]
         output_images = []
