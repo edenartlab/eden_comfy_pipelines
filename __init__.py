@@ -15,8 +15,8 @@ from video_utils.video_interpolation import VideoFrameSelector
 
 NODE_CLASS_MAPPINGS = {
     "CLIP_Interrogator": CLIP_Interrogator,
-    "IMG_padder": IMG_padder,
-    "IMG_unpadder": IMG_unpadder,
+    "Eden_IMG_padder": IMG_padder,
+    "Eden_IMG_unpadder": IMG_unpadder,
     "IMG_scaler": IMG_scaler,
     "IMG_blender": IMG_blender,
     "ConvertToGrayscale": ConvertToGrayscale,
