@@ -1,13 +1,12 @@
 import torch
 from PIL import Image
-import sys, os, time
+import os, time
 import torch
 import cv2
 import numpy as np
 import random
 import gc
 import torch
-from torchvision import transforms
 import imghdr
 
 ###########################################################################
