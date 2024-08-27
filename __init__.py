@@ -40,7 +40,6 @@ NODE_CLASS_MAPPINGS = {
     "Eden_gpt4_node": Eden_gpt4_node,
     "FolderScanner": FolderScanner,
     "SavePosEmbeds": SavePosEmbeds,
-    "Eden_Lora_Loader": Eden_Lora_Loader,
     "VideoFrameSelector": VideoFrameSelector,
     "LoadImagesByFilename": LoadImagesByFilename,
     "Random_Style_Mixture": Random_Style_Mixture,
