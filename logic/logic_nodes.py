@@ -124,7 +124,7 @@ class Eden_IfExecute:
         }
 
     RETURN_TYPES = (AlwaysEqualProxy("*"),)
-    RETURN_NAMES = "?"
+    RETURN_NAMES = ("?",)
     FUNCTION = "return_based_on_bool"
     CATEGORY = "Eden 🌱/Logic"
     
