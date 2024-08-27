@@ -1,13 +1,12 @@
 import torch
 from PIL import Image
-import sys, os, time
+import os, time
 import torch
 import cv2
 import numpy as np
 import random
 import gc
 import torch
-from torchvision import transforms
 import imghdr
 
 ###########################################################################
@@ -940,28 +939,24 @@ class ConvertToGrayscale:
             raise ValueError(f"Input image must have 1 or 3 channels, but got {c} channels. Image shape = {image.shape}")
         return (image,)
 
+
 class AspectPadImageForOutpainting:
+    def __init__(self):
+        pass
+    
     """
     A node to calculate args for default comfy node 'Pad Image For Outpainting'
     """
     ASPECT_RATIO_MAP = {
-        "SDXL_1-1_square_1024x1024": (1024, 1024),
-        "SDXL_4-3_landscape_1152x896": (1152, 896),
-        "SDXL_3-2_landscape_1216x832": (1216, 832),
-        "SDXL_16-9_landscape_1344x768": (1344, 768),
-        "SDXL_21-9_landscape_1536x640": (1536, 640),
-        "SDXL_3-4_portrait_896x1152": (896, 1152),
-        "SDXL_5-8_portrait_832x1216": (832, 1216),
-        "SDXL_9-16_portrait_768x1344": (768, 1344),
-        "SDXL_9-21_portrait_640x1536": (640, 1536),
-        "SD15_1-1_square_512x512": (512, 512),
-        "SD15_2-3_portrait_512x768": (512, 768),
-        "SD15_3-4_portrait_512x682": (512, 682),
-        "SD15_3-2_landscape_768x512": (768, 512),
-        "SD15_4-3_landscape_682x512": (682, 512),
-        "SD15_16-9_cinema_910x512": (910, 512),
-        "SD15_37-20_cinema_952x512": (952, 512),
-        "SD15_2-1_cinema_1024x512": (1024, 512),
+        "1-1_square_1024x1024": (1024, 1024),
+        "4-3_landscape_1152x896": (1152, 896),
+        "3-2_landscape_1216x832": (1216, 832),
+        "16-9_landscape_1344x768": (1344, 768),
+        "21-9_landscape_1536x640": (1536, 640),
+        "3-4_portrait_896x1152": (896, 1152),
+        "2-3_portrait_832x1216": (832, 1216),
+        "9-16_portrait_768x1344": (768, 1344),
+        "9-21_portrait_640x1536": (640, 1536),
     }
 
     @classmethod
@@ -969,15 +964,15 @@ class AspectPadImageForOutpainting:
         return {
             "required": {
                 "image": ("IMAGE",),
-                "aspect_ratio": (list(s.ASPECT_RATIO_MAP.keys()), {"default": "SD1.5 - 1:1 square 512x512"}),
+                "aspect_ratio": (list(s.ASPECT_RATIO_MAP.keys()), {"default": "16-9_landscape_1344x768"}),
                 "justification": (["top-left", "center", "bottom-right"], {"default": "center"}),
             }
         }
 
     RETURN_TYPES = ("IMAGE", "INT", "INT", "INT", "INT")
-    NAMES = ("image", "new_width", "new_height", "padding_top", "padding_left")
+    RETURN_NAMES = ("IMAGE","LEFT","TOP","RIGHT","BOTTOM")
     FUNCTION = "fit_and_calculate_padding"
-    CATEGORY = "Eden 🌱/Image"
+    CATEGORY = "Eden 🌱"
 
     def fit_and_calculate_padding(self, image, aspect_ratio, justification):
         bs, h, w, c = image.shape
