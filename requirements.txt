@@ -6,3 +6,5 @@ scikit-learn
 transformers
 matplotlib
 scikit-image
+opencv-python
+
