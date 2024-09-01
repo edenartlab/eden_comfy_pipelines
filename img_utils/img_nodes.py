@@ -435,7 +435,6 @@ def get_uniformly_sized_crops(imgs, target_n_pixels=2048**2):
     
     return resized_imgs
 
-    
 from PIL import Image, ImageOps, ImageSequence
 class LoadRandomImage:
     def __init__(self):
@@ -506,7 +505,7 @@ class LoadImagesByFilename:
     def INPUT_TYPES(s):
         return {
             "required": {
-                    "filename": ("LIST",),
+                    "filename": ("COMBO", {"default": []}),
                     "max_num_images": ("INT", {"default": None}),
                     "seed": ("INT", {"default": 0, "min": 0, "max": 100000}),
                     "sort": ("BOOLEAN", {"default": False}),
@@ -558,8 +557,10 @@ class LoadImagesByFilename:
         return (output_image,)
 
 
-class GetRandomFile:
 
+
+
+class GetRandomFile:
     @classmethod
     def INPUT_TYPES(s):
         return {
@@ -580,88 +581,6 @@ class GetRandomFile:
         random.seed(seed)
         path = random.choice(files)
         return (path,)
-
-
-
-import torch
-import cv2
-import numpy as np
-
-class HIST_matcher_depracted:
-    def __init__(self):
-        self.ci = None
-
-    @classmethod
-    def INPUT_TYPES(s):
-        return {
-            "required": {
-                "src_image": ("IMAGE",),
-                "dst_images": ("IMAGE",),
-            }
-        }
-
-    RETURN_TYPES = ("IMAGE",)
-    FUNCTION = "hist_match"
-    CATEGORY = "Eden 🌱/Image"
-
-    def hist_match(self, src_image, dst_images):
-        # bs, h, w, c = src_image.shape
-
-        # Convert images to numpy arrays
-        src_image_np  = 255. * src_image.cpu().numpy()
-        dst_images_np = 255. * dst_images.cpu().numpy()
-
-        # clip to 0-255:
-        src_image_np  = np.clip(src_image_np, 0, 255).astype(np.uint8)
-        dst_images_np = np.clip(dst_images_np, 0, 255).astype(np.uint8)
-
-        # Convert images to YCrCb color space
-        input_img_ycrcb   = cv2.cvtColor(src_image_np[0], cv2.COLOR_BGR2YCrCb)
-        output_imgs_ycrcb = [cv2.cvtColor(img, cv2.COLOR_BGR2YCrCb) for img in dst_images_np]
-
-        # Compute the histogram of the input image
-        hist_input = cv2.calcHist([input_img_ycrcb], [0], None, [256], [0, 256])
-
-        # Compute the average histogram of the output images
-        hist_output_avg = np.mean([cv2.calcHist([img], [0], None, [256], [0, 256]) for img in output_imgs_ycrcb], axis=0)   
-
-        # Create a lookup table to map the average output histogram to the input histogram
-        cumulative_input = np.cumsum(hist_input) / sum(hist_input)
-        cumulative_output = np.cumsum(hist_output_avg) / sum(hist_output_avg)
-
-        lookup_table = np.zeros(256, dtype=np.uint8)
-        for i in range(256):
-            idx = np.abs(cumulative_input[i] - cumulative_output).argmin()
-            lookup_table[i] = idx
-
-        # Visualize the lookup table:
-        plt.figure()
-        plt.plot(lookup_table)
-        plt.savefig("lookup_table.png")
-        
-        # Apply the lookup table to the Y channel of each output image
-        adjusted_imgs = []
-
-        plt.figure()
-        for img in output_imgs_ycrcb:
-            img_adjusted = cv2.LUT(img[:,:,0], lookup_table)
-            img_adjusted = cv2.merge([img_adjusted, img[:,:,1], img[:,:,2]])
-
-            adjusted_hist = cv2.calcHist([img_adjusted], [0], None, [256], [0, 256])
-            plt.plot(adjusted_hist, label="Adjusted")
-
-            # Convert back to BGR color space and add to the list of adjusted images
-            img_adjusted_bgr = cv2.cvtColor(img_adjusted, cv2.COLOR_YCrCb2BGR)
-            torch_img = torch.tensor(img_adjusted_bgr).float() / 255.0
-            adjusted_imgs.append(torch_img)
-
-        plt.legend()
-        plt.savefig("adjusted_histograms.png")
-
-        output_tensors = torch.stack(adjusted_imgs, dim=0)
-
-        return (output_tensors,)
-
 
 
 
@@ -689,8 +608,6 @@ class IMG_resolution_multiple_of:
         w = w - w % multiple_of
         image = image[:, :h, :w, :]
         return (image,)
-
-
 
 class IMG_padder:
     def __init__(self):
