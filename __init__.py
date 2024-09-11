@@ -50,6 +50,7 @@ NODE_CLASS_MAPPINGS = {
     "WidthHeightPicker": WidthHeightPicker,
     "DepthSlicer": DepthSlicer,
     "ParallaxZoom": ParallaxZoom,
-    "AspectPadImageForOutpainting": AspectPadImageForOutpainting
+    "AspectPadImageForOutpainting": AspectPadImageForOutpainting,
+    "Eden_MaskBoundingBox": Eden_MaskBoundingBox
 }
 

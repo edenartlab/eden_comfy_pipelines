@@ -24,6 +24,89 @@ def print_available_memory():
     memory = psutil.virtual_memory()
     print(f"Available memory: {memory.available / 1024 / 1024 / 1024:.2f} GB")
 
+import torchvision.transforms.functional as T
+import comfy.utils
+
+class Eden_MaskBoundingBox:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "mask": ("MASK",),
+                "padding": ("INT", { "default": 0, "min": 0, "max": 4096, "step": 1, }),
+                "blur": ("INT", { "default": 0, "min": 0, "max": 256, "step": 1, }),
+                "noise_threshold": ("INT", { "default": 1, "min": 0, "max": 1000, "step": 1, }),
+            },
+            "optional": {
+                "image_optional": ("IMAGE",),
+            }
+        }
+    RETURN_TYPES = ("MASK", "IMAGE", "INT", "INT", "INT", "INT")
+    RETURN_NAMES = ("MASK", "IMAGE", "x", "y", "width", "height")
+    FUNCTION = "execute"
+    CATEGORY = "Eden/mask"
+
+    def execute(self, mask, padding, blur, noise_threshold, image_optional=None):
+        if mask.dim() == 2:
+            mask = mask.unsqueeze(0)
+        if image_optional is None:
+            image_optional = mask.unsqueeze(3).repeat(1, 1, 1, 3)
+        # resize the image if it's not the same size as the mask
+        if image_optional.shape[1:] != mask.shape[1:]:
+            image_optional = comfy.utils.common_upscale(image_optional.permute([0,3,1,2]), mask.shape[2], mask.shape[1], upscale_method='bicubic', crop='center').permute([0,2,3,1])
+        # match batch size
+        if image_optional.shape[0] < mask.shape[0]:
+            image_optional = torch.cat((image_optional, image_optional[-1].unsqueeze(0).repeat(mask.shape[0]-image_optional.shape[0], 1, 1, 1)), dim=0)
+        elif image_optional.shape[0] > mask.shape[0]:
+            image_optional = image_optional[:mask.shape[0]]
+        
+        # Apply noise reduction
+        kernel_size = 3
+        mask = self.reduce_noise(mask, kernel_size, noise_threshold)
+
+        # blur the mask
+        if blur > 0:
+            if blur % 2 == 0:
+                blur += 1
+            mask = T.gaussian_blur(mask.unsqueeze(1), blur).squeeze(1)
+        
+        # Find bounding box
+        y_indices, x_indices = torch.where(mask[0] > 0)
+        if len(y_indices) > 0 and len(x_indices) > 0:
+            x1 = max(0, x_indices.min().item() - padding)
+            x2 = min(mask.shape[2], x_indices.max().item() + 1 + padding)
+            y1 = max(0, y_indices.min().item() - padding)
+            y2 = min(mask.shape[1], y_indices.max().item() + 1 + padding)
+        else:
+            # If no non-zero pixels found, return the entire mask
+            x1, y1, x2, y2 = 0, 0, mask.shape[2], mask.shape[1]
+
+        # crop the mask and debug_mask
+        mask = mask[:, y1:y2, x1:x2]
+        image_optional = image_optional[:, y1:y2, x1:x2, :]
+
+        return (mask, image_optional, x1, y1, x2 - x1, y2 - y1)
+
+    @staticmethod
+    def reduce_noise(mask, kernel_size, threshold):
+        # Create a max pooling layer
+        max_pool = torch.nn.MaxPool2d(kernel_size, stride=1, padding=kernel_size//2)
+        
+        # Apply max pooling
+        pooled = max_pool(mask)
+        
+        # Count non-zero neighbors
+        neighbor_count = torch.nn.functional.conv2d(
+            mask.float(), 
+            torch.ones(1, 1, kernel_size, kernel_size).to(mask.device),
+            padding=kernel_size//2
+        )
+        
+        # Keep only pixels with enough non-zero neighbors
+        mask = torch.where(neighbor_count >= threshold, pooled, torch.zeros_like(pooled))
+        
+        return mask
+
 
 class WidthHeightPicker:
     @classmethod
