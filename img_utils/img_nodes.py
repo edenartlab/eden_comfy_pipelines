@@ -873,40 +873,50 @@ class IMG_scaler:
         return (output_image,)
 
 
-def to_grayscale(images, keep_dims=True):
+def to_grayscale(images, keep_dims=True, alpha_channel_convert_to=None):
     """
-    Convert a batch of RGB images to grayscale.
+    Convert a batch of RGB or RGBA images to grayscale.
     
     Args:
         images (torch.Tensor): Input tensor of shape (batch_size, height, width, channels)
-                                with channels = 3 for RGB images.
+                                with channels = 3 for RGB images or 4 for RGBA images.
+        keep_dims (bool): If True, maintain the original number of channels.
+        alpha_channel_convert_to (tuple or None): RGB values to set for transparent pixels.
     
     Returns:
-        torch.Tensor: Grayscale images of shape (batch_size, height, width, 1) or (batch_size, height, width, 3) if keep_dims=True.
+        torch.Tensor: Grayscale images of shape (batch_size, height, width, channels).
     """
-    if images.shape[-1] != 3:
-        raise ValueError("Input images must have 3 channels (RGB).")
+    if images.shape[-1] not in [3, 4]:
+        raise ValueError("Input images must have 3 (RGB) or 4 (RGBA) channels.")
 
     # Define the weights for the RGB channels to convert to grayscale.
-    # These are the standard weights used in the ITU-R BT.601 standard.
     weights = torch.tensor([0.2989, 0.5870, 0.1140], device=images.device)
 
+    # Separate the alpha channel if present
+    if images.shape[-1] == 4:
+        rgb = images[..., :3]
+        alpha = images[..., 3:]
+    else:
+        rgb = images
+        alpha = None
+
     # Permute the dimensions to (batch_size, channels, height, width)
-    # for easier matrix multiplication.
-    images_permuted = images.permute(0, 3, 1, 2)
+    rgb_permuted = rgb.permute(0, 3, 1, 2)
 
     # Perform the weighted sum along the channel dimension (dim=1)
-    grayscale_images = torch.tensordot(images_permuted, weights, dims=([1], [0]))
+    grayscale_images = torch.tensordot(rgb_permuted, weights, dims=([1], [0]))
 
     # Add an extra dimension for the channel at the end.
     grayscale_images = grayscale_images.unsqueeze(-1)
 
     if keep_dims:
-        # Permute the dimensions back to (batch_size, height, width, 1)
-        #grayscale_images = grayscale_images.permute(0, 2, 3, 1)
-        # Repeat the grayscale image 3 times to match the original dimensions.
+        # Repeat the grayscale image to match the original dimensions.
         grayscale_images = grayscale_images.repeat(1, 1, 1, 3)
-    
+        
+        if alpha is not None:
+            # If alpha_channel_convert_to is provided, blend the grayscale with the specified color
+            if alpha_channel_convert_to is not None:
+                grayscale_images = grayscale_images * alpha + alpha_channel_convert_to * (1 - alpha)
 
     return grayscale_images
 
@@ -920,6 +930,7 @@ class ConvertToGrayscale:
         return {
             "required": {
                 "image": ("IMAGE",),
+                "alpha_channel_convert_to": ("FLOAT", {"default": 0.0, "min": 0, "max": 1, "step": 0.01})
             }
         }
 
@@ -927,16 +938,16 @@ class ConvertToGrayscale:
     FUNCTION = "convert_to_grayscale"
     CATEGORY = "Eden 🌱/Image"
 
-    def convert_to_grayscale(self, image):
-        # Input is a torch tensor with shape (bs, c, h, w)
+    def convert_to_grayscale(self, image, alpha_channel_convert_to):
+        # Input is a torch tensor with shape (bs, h, w, c)
         bs, h, w, c = image.shape
         if c == 1:
-            pass
-        elif c == 3:
+            return (image,)
+        elif c in [3, 4]:
             # Convert the image to grayscale
-            image = to_grayscale(image)
+            image = to_grayscale(image, keep_dims=True, alpha_channel_convert_to=alpha_channel_convert_to)
         else:
-            raise ValueError(f"Input image must have 1 or 3 channels, but got {c} channels. Image shape = {image.shape}")
+            raise ValueError(f"Input image must have 1, 3, or 4 channels, but got {c} channels. Image shape = {image.shape}")
         return (image,)
 
 
