@@ -11,6 +11,7 @@ from logic.logic_nodes import *
 from img_utils.animation import Animation_RGB_Mask
 from ip_adapter_utils.moodmix_utils import *
 from video_utils.video_interpolation import VideoFrameSelector
+from general_utils import *
 
 NODE_CLASS_MAPPINGS = {
     "CLIP_Interrogator": CLIP_Interrogator,
@@ -50,6 +51,7 @@ NODE_CLASS_MAPPINGS = {
     "DepthSlicer": DepthSlicer,
     "ParallaxZoom": ParallaxZoom,
     "AspectPadImageForOutpainting": AspectPadImageForOutpainting,
-    "Eden_MaskBoundingBox": Eden_MaskBoundingBox
+    "Eden_MaskBoundingBox": Eden_MaskBoundingBox,
+    "Eden_Seed": Eden_Seed,
 }
 
