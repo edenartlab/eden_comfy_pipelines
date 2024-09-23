@@ -3,6 +3,48 @@
 
 <h2>Quick example of some of the most useful nodes:</h2>
 
+<h3>DepthSlicer node</h3>
+<img src="assets/depthslicer.jpg" alt="DepthSlicer Node" style="display: block; margin: auto; width: 50%;">
+<p>Generates masks from a depth map:</p>
+<ul>
+    <li>This node takes a depth map as input and slices it in the z direction to produce "depth slices" that can be used for animations or inpainting.</li>
+</ul>
+
+<h3>GPT4 node</h3>
+<img src="assets/eden_gpt4_node.jpg" alt="GPT4 Node" style="display: block; margin: auto; width: 50%;">
+<p>Call GPT4 for text completion:</p>
+<ul>
+    <li>A very generic node that just wraps the OpenAI API. All you need is a .env file in the root comfyUI folder with your API key.</li>
+</ul>
+
+<h3>GPT4 vision node</h3>
+<img src="assets/imagedescriptionnode.jpg" alt="GPT4 Vision Node" style="display: block; margin: auto; width: 50%;">
+<p>Call GPT4-vision for image captioning / understanding</p>
+<ul>
+    <li>A very generic node that just wraps the OpenAI API. All you need is a .env file in the root comfyUI folder with your API key.</li>
+</ul>
+
+<h3>Load random Images from a directory</h3>
+<img src="assets/loadrandomimage.jpg" alt="LoadRandomImage Node" style="display: block; margin: auto; width: 50%;">
+<p>Enables various random image loading formats to create auto-experiments.</p>
+<ul>
+    <li> Just hit "queue prompt" several times and it will run the workflow on different inputs. When multiple images are loaded, it will auto-crop them to the same aspect ratio / resolution.</li>
+</ul>
+
+<h3>Generate (video) masks from an input image/video using color clustering</h3>
+<img src="assets/maskfromrgb_kmeans.jpg" alt="maskfromrgb_kmeans Node" style="display: block; margin: auto; width: 50%;">
+<p>Applies KMeans clustering to the colors of an input image/video to produce output masks</p>
+<ul>
+    <li> This node is super useful when generating masks for eg AnimateDiff directly from a source video</li>
+</ul>
+
+<h3>3D Parallax Zoom</h3>
+<img src="assets/parallaxzoom.jpg" alt="maskfromrgb_kmeans Node" style="display: block; margin: auto; width: 50%;">
+<p>Applies 3D depth zooming to an image</p>
+<ul>
+    <li>Given a depth map and an image, this node creates a 3D-zoom parallax video, Deforum Style.</li>
+</ul>
+
 <h3>CLIP_interrogator node</h3>
 <p>Based off <a href="https://github.com/pharmapsychotic/clip-interrogator">clip_interrogator</a>.</p>
 <img src="assets/CLIP_interrogator.png" alt="CLIP Interrogator Node Image" style="display: block; margin: auto; width: 50%;">
