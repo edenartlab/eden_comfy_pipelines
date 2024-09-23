@@ -1,7 +1,7 @@
 <h1>eden_comfy_pipelines</h1>
 <p>A collection of custom nodes and workflows for ComfyUI. Most nodes are not yet documented in this README but are used in our workflows repo: https://github.com/edenartlab/workflows.</p>
 
-<h2>Current nodes:</h2>
+<h2>Quick example of some of the most useful nodes:</h2>
 
 <h3>CLIP_interrogator node</h3>
 <p>Based off <a href="https://github.com/pharmapsychotic/clip-interrogator">clip_interrogator</a>.</p>
