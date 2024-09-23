@@ -1,5 +1,5 @@
 <h1>eden_comfy_pipelines</h1>
-<p>A collection of custom nodes and workflows for ComfyUI. Most nodes are not yet documented in this README but are used in our [workflows](https://github.com/edenartlab/workflows) repo.</p>
+<p>A collection of custom nodes and workflows for ComfyUI. Most nodes are not yet documented in this README but are used in our workflows repo: https://github.com/edenartlab/workflows.</p>
 
 <h2>Current nodes:</h2>
 
