@@ -1,6 +1,6 @@
 # Eden.art custom node Suite
 
-A collection of custom nodes and workflows for ComfyUI, developed by [Eden](https://www.eden.art/).
+A collection of custom nodes and workflows for ComfyUI, developed by [**Eden**](https://www.eden.art/).
 
 Some nodes are not yet documented in this README but are used in [our workflows repo](https://github.com/edenartlab/workflows).
 
