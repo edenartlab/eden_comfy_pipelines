@@ -5,14 +5,7 @@ A collection of custom nodes and workflows for ComfyUI, developed by [**Eden**](
 Some nodes are not yet documented in this README but are used in [our workflows repo](https://github.com/edenartlab/workflows).
 
 
-## Quick example of some of the most useful nodes:
-
-<h3>DepthSlicer node</h3>
-<img src="assets/depthslicer.jpg" alt="DepthSlicer Node" style="display: block; margin: auto; width: 50%;">
-<p>Generates masks from a depth map:</p>
-<ul>
-    <li>This node takes a depth map as input and slices it in the z direction to produce "depth slices" that can be used for animations or inpainting.</li>
-</ul>
+## Examples of some of the most useful nodes:
 
 <h3>GPT4 node</h3>
 <img src="assets/eden_gpt4_node.jpg" alt="GPT4 Node" style="display: block; margin: auto; width: 50%;">
@@ -40,6 +33,13 @@ Some nodes are not yet documented in this README but are used in [our workflows 
 <p>Applies KMeans clustering to the colors of an input image/video to produce output masks</p>
 <ul>
     <li> This node is super useful when generating masks for eg AnimateDiff directly from a source video</li>
+</ul>
+
+<h3>DepthSlicer node</h3>
+<img src="assets/depthslicer.jpg" alt="DepthSlicer Node" style="display: block; margin: auto; width: 50%;">
+<p>Generates masks from a depth map:</p>
+<ul>
+    <li>This node takes a depth map as input and slices it in the z direction to produce "depth slices" that can be used for animations or inpainting.</li>
 </ul>
 
 <h3>3D Parallax Zoom</h3>
