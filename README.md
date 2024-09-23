@@ -50,6 +50,7 @@
 <img src="assets/CLIP_interrogator.png" alt="CLIP Interrogator Node Image" style="display: block; margin: auto; width: 50%;">
 <p>This is a simple CLIP_interrogator node that has a few handy options:</p>
 <ul>
+    <li>If the auto-download fails, just clone https://huggingface.co/Salesforce/blip-image-captioning-large into ComfyUI/models/blip </li>
     <li>"keep_model_alive" will not remove the CLIP/BLIP models from the GPU after the node is executed, avoiding the need to reload the entire model every time you run a new pipeline (but will use more GPU memory).</li>
     <li>"prepend_BLIP_caption" can be turned off to only get the matching modifier tags but not use a BLIP-interrogation. Useful if you're using an image with IP_adapter and are mainly looking to copy textures, but not global image contents.</li>
     <li>"save_prompt_to_txt_file" to specify a path where the prompt is saved to disk.</li>
