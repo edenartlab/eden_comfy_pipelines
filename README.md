@@ -1,5 +1,8 @@
-<h1>Eden.art custom node Suite</h1>
-<p>A collection of custom nodes and workflows for ComfyUI, developed by [Eden](https://www.eden.art/). Most nodes are not yet documented in this README but are used in [our workflows repo](https://github.com/edenartlab/workflows).</p>
+# Eden.art custom node Suite
+
+A collection of custom nodes and workflows for ComfyUI, developed by [Eden](https://www.eden.art/).
+
+Some nodes are not yet documented in this README but are used in [our workflows repo](https://github.com/edenartlab/workflows).
 
 <h2>Quick example of some of the most useful nodes:</h2>
 
