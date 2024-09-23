@@ -4,7 +4,8 @@ A collection of custom nodes and workflows for ComfyUI, developed by [**Eden**](
 
 Some nodes are not yet documented in this README but are used in [our workflows repo](https://github.com/edenartlab/workflows).
 
-<h2>Quick example of some of the most useful nodes:</h2>
+
+## Quick example of some of the most useful nodes:
 
 <h3>DepthSlicer node</h3>
 <img src="assets/depthslicer.jpg" alt="DepthSlicer Node" style="display: block; margin: auto; width: 50%;">
