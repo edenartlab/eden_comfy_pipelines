@@ -53,5 +53,6 @@ NODE_CLASS_MAPPINGS = {
     "AspectPadImageForOutpainting": AspectPadImageForOutpainting,
     "Eden_MaskBoundingBox": Eden_MaskBoundingBox,
     "Eden_Seed": Eden_Seed,
+    "Eden_RepeatLatentBatch": Eden_RepeatLatentBatch,
 }
 

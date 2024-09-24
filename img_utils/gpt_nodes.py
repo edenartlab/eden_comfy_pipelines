@@ -94,13 +94,13 @@ class ImageDescriptionNode:
 
             if not OPENAI_API_KEY:
                 return "An OpenAI API key is required for GPT-4 Vision. Make sure to place a .env file in the root directory of eden_comfy_pipelines with your secret API key. Make sure to never share your API key with anyone."
-
+            
             client = OpenAI(api_key=OPENAI_API_KEY, base_url=endpoint)
             processed_image = self.image_to_base64(img)
             detail = "low" if model == "gpt-4-vision Low" else "high"
             system_message = self.set_system_message("You are a helpful assistant.")
             response = client.chat.completions.create(
-                model="gpt-4-turbo",
+                model="gpt-4o",
                 messages=system_message + [
                     {
                         "role": "user",
