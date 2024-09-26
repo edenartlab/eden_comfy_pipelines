@@ -431,6 +431,9 @@ class MaskFromRGB_KMeans:
             feathering = feathering // 2 * 2
 
             kernel = gaussian_kernel_2d(feathering).to(masks.device)
+            
+            # Calculate padding size
+            pad_size = kernel.shape[2] // 2
 
             print("Feathering masks...")
             # Apply convolution for feathering
@@ -438,7 +441,16 @@ class MaskFromRGB_KMeans:
             for i in range(masks.shape[0]):
                 mask_padded = masks[i]
                 mask_padded = mask_padded.unsqueeze(0).unsqueeze(0)  # Add batch dimension
-                mask_feathered = F.conv2d(mask_padded, kernel, padding='same')
+                
+                # Apply reflection padding
+                mask_padded = F.pad(mask_padded, (pad_size, pad_size, pad_size, pad_size), mode='reflect')
+                
+                # Apply convolution
+                mask_feathered = F.conv2d(mask_padded, kernel, padding=0)
+                
+                # Ensure the output size matches the input size exactly
+                mask_feathered = F.interpolate(mask_feathered, size=(h, w), mode='bilinear', align_corners=False)
+                
                 masks_feathered[i] = mask_feathered.squeeze()
             
             masks = masks_feathered.view(n_imgs, n_colors, h, w).to("cpu")
