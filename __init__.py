@@ -54,5 +54,6 @@ NODE_CLASS_MAPPINGS = {
     "Eden_MaskBoundingBox": Eden_MaskBoundingBox,
     "Eden_Seed": Eden_Seed,
     "Eden_RepeatLatentBatch": Eden_RepeatLatentBatch,
+    "Extend_Sequence": Extend_Sequence,
 }
 

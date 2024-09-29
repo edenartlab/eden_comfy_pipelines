@@ -1037,3 +1037,45 @@ class AspectPadImageForOutpainting:
             bottom = 0
 
         return (resized_image, left, top, right, bottom)
+    
+
+class Extend_Sequence:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "images": ("IMAGE",),  # Input is a stack of images
+                "target_n_frames": ("INT", {"default": 24, "min": 1, "step": 1}),  # Desired output number of frames
+                "mode": (["wrap_around", "ping_pong"], ),  # Various modes for handling the sequence
+            }
+        }
+
+    RETURN_TYPES = ("IMAGE",)
+    FUNCTION = "process_sequence"
+    CATEGORY = "Eden 🌱/Image"
+
+    def process_sequence(self, images, target_n_frames, mode="wrap_around"):
+        n_frames = images.shape[0]
+
+        if mode == "wrap_around":
+            # Wrap the sequence around to get target_n_frames
+            extended_images = self._wrap_around(images, target_n_frames)
+        elif mode == "ping_pong":
+            # Repeat and reverse the sequence to create a ping-pong effect
+            extended_images = self._ping_pong(images, target_n_frames)
+
+        return (extended_images,)
+
+    def _wrap_around(self, images, target_n_frames):
+        """Wrap around the input images to match the target number of frames."""
+        n_frames = images.shape[0]
+        # Use torch indexing to repeat images without new allocations
+        indices = torch.arange(target_n_frames) % n_frames
+        return images[indices]
+
+    def _ping_pong(self, images, target_n_frames):
+        """Create a ping-pong effect by repeating and reversing frames."""
+        n_frames = images.shape[0]
+        indices = torch.arange(target_n_frames) % (2 * n_frames)
+        indices = torch.where(indices >= n_frames, 2 * n_frames - indices - 1, indices)
+        return images[indices]
