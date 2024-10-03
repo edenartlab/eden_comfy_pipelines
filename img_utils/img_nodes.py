@@ -294,68 +294,6 @@ def gaussian_kernel_2d(sigma, size=0):
     kernel = kernel / kernel.sum()
     return kernel.view(1, 1, -1, 1) * kernel.view(1, 1, 1, -1)
 
-class MaskFromRGB:
-    @classmethod
-    def INPUT_TYPES(s):
-        return {
-            "required": {
-                "image": ("IMAGE", ),
-                "threshold_r": ("FLOAT", { "default": 0.15, "min": 0.0, "max": 1, "step": 0.01, }),
-                "threshold_g": ("FLOAT", { "default": 0.15, "min": 0.0, "max": 1, "step": 0.01, }),
-                "threshold_b": ("FLOAT", { "default": 0.15, "min": 0.0, "max": 1, "step": 0.01, }),
-                "feathering": ("FLOAT", { "default": 0.0, "min": 0.0, "max": 500.0, "step": 0.1 }),
-            }
-        }
-
-    RETURN_TYPES = ("MASK","MASK","MASK","MASK","MASK","MASK","MASK","MASK",)
-    RETURN_NAMES = ("red","green","blue","cyan","magenta","yellow","black","white",)
-    FUNCTION = "execute"
-    CATEGORY = "Eden 🌱"
-
-    @torch.no_grad()
-    def execute(self, image, threshold_r, threshold_g, threshold_b, feathering):
-
-        # Thresholding
-        red = (image[..., 0] >= 1 - threshold_r) & (image[..., 1] < threshold_g) & (image[..., 2] < threshold_b)
-        green = (image[..., 0] < threshold_r) & (image[..., 1] >= 1 - threshold_g) & (image[..., 2] < threshold_b)
-        blue = (image[..., 0] < threshold_r) & (image[..., 1] < threshold_g) & (image[..., 2] >= 1 - threshold_b)
-
-        cyan = (image[..., 0] < threshold_r) & (image[..., 1] >= 1 - threshold_g) & (image[..., 2] >= 1 - threshold_b)
-        magenta = (image[..., 0] >= 1 - threshold_r) & (image[..., 1] < threshold_g) & (image[..., 2] > 1 - threshold_b)
-        yellow = (image[..., 0] >= 1 - threshold_r) & (image[..., 1] >= 1 - threshold_g) & (image[..., 2] < threshold_b)
-
-        black = (image[..., 0] <= threshold_r) & (image[..., 1] <= threshold_g) & (image[..., 2] <= threshold_b)
-        white = (image[..., 0] >= 1 - threshold_r) & (image[..., 1] >= 1 - threshold_g) & (image[..., 2] >= 1 - threshold_b)
-
-        # Combine masks
-        masks = torch.stack([red, green, blue, cyan, magenta, yellow, black, white], dim=1).float()
-
-        if feathering > 0:
-            masks = masks.to("cuda")
-            n_imgs, n_colors, h, w = masks.shape
-            batch_size = n_imgs * n_colors
-            masks = masks.view(batch_size, h, w)
-
-            kernel = gaussian_kernel_2d(feathering).to(masks.device)
-
-            print("Feathering masks...")
-            # Apply convolution for feathering
-            masks_feathered = torch.zeros_like(masks)
-            for i in range(masks.shape[0]):
-                mask_padded = masks[i]
-                mask_padded = mask_padded.unsqueeze(0).unsqueeze(0)  # Add batch dimension
-                mask_feathered = F.conv2d(mask_padded, kernel, padding='same')
-                masks_feathered[i] = mask_feathered.squeeze()
-            
-            masks = masks_feathered.view(n_imgs, n_colors, h, w).to("cpu")
-            gc.collect()
-            torch.cuda.empty_cache()
-
-        # convert masks to float16 to save memory:
-        masks = masks.half()
-
-        return masks[:, 0], masks[:, 1], masks[:, 2], masks[:, 3], masks[:, 4], masks[:, 5], masks[:, 6], masks[:, 7]
-
 from sklearn.cluster import KMeans
 from .img_utils import lab_to_rgb, rgb_to_lab
 import numpy as np
@@ -415,7 +353,7 @@ class MaskFromRGB_KMeans:
         cluster_labels = torch.from_numpy(sorted_cluster_labels).to("cpu").view(n, h, w)
 
         # Transform the cluster_labels into masks:
-        masks = torch.zeros(n, 8, h, w)
+        masks = torch.zeros(n, 8, h, w, device=image.device)
 
         for i in range(n):
             for j in range(n_color_clusters):
@@ -456,7 +394,7 @@ class MaskFromRGB_KMeans:
             masks = masks_feathered.view(n_imgs, n_colors, h, w).to("cpu")
 
         # Upscale masks to original resolution:
-        masks = F.interpolate(masks, size=(image.shape[1], image.shape[2]), mode='bicubic', align_corners=False)
+        masks = F.interpolate(masks, size=(image.shape[1], image.shape[2]), mode='bicubic', align_corners=False).to("cpu")
 
         return masks[:, 0], masks[:, 1], masks[:, 2], masks[:, 3], masks[:, 4], masks[:, 5], masks[:, 6], masks[:, 7]
 

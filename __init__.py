@@ -32,7 +32,6 @@ NODE_CLASS_MAPPINGS = {
     "Eden_String": Eden_String,
     "If ANY execute A else B": Eden_IfExecute,
     "Eden_DebugPrint": Eden_DebugPrint,
-    "MaskFromRGB": MaskFromRGB,
     "MaskFromRGB_KMeans": MaskFromRGB_KMeans,
     "GetRandomFile": GetRandomFile,
     "Animation_RGB_Mask": Animation_RGB_Mask,
@@ -55,5 +54,6 @@ NODE_CLASS_MAPPINGS = {
     "Eden_Seed": Eden_Seed,
     "Eden_RepeatLatentBatch": Eden_RepeatLatentBatch,
     "Extend_Sequence": Extend_Sequence,
+    "Eden_DetermineFrameCount": Eden_DetermineFrameCount,
 }
 
