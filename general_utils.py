@@ -1,5 +1,6 @@
 import sys, os, time, math
 import folder_paths
+from statistics import mean
 
 def find_comfy_models_dir():
     return str(folder_paths.models_dir)
@@ -17,6 +18,85 @@ class Eden_Seed:
     def output(self, seed):
         seed_string = str(seed)
         return (seed, seed_string,)
+    
+# wildcard trick is taken from pythongossss's
+class AnyType(str):
+    def __ne__(self, __value: object) -> bool:
+        return False
+
+any_typ = AnyType("*")
+
+class Eden_Math:
+    """Node to evaluate a simple math expression string with variables a, b, c"""
+    
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "expression": ("STRING", {"default": "", "multiline": False}),
+            },
+            "optional": {
+                "a": (any_typ, {"default": 0.0}),
+                "b": (any_typ, {"default": 0.0}),
+                "c": (any_typ, {"default": 0.0}),
+            }
+        }
+
+    FUNCTION = "eval_expression"
+    RETURN_TYPES = ("FLOAT", "INT", "STRING")
+    RETURN_NAMES = ("result (float)", "result (int)", "result (float_str)")
+    CATEGORY = "Eden 🌱/general"
+    DESCRIPTION = (
+        "evaluate a simple math expression string with variables a, b, c, supports basic math and functions"
+    )
+
+    def eval_expression(self, expression: str, a = 0.0, b = 0.0, c = 0.0):
+        allowed_functions = {
+            'min': min,
+            'max': max,
+            'mean': mean,
+            'sqrt': math.sqrt,
+            '^': pow,
+            'pow': pow,
+        }
+
+        a = float(a)
+        b = float(b)
+        c = float(c)
+
+        # Add variables a, b, c to the namespace
+        local_vars = {'a': a, 'b': b, 'c': c, **allowed_functions}
+
+        # Replace caret symbol (^) with '**' for power operation
+        expression = expression.replace('^', '**')
+
+        result = -1
+        try:
+            result = eval(expression, {"__builtins__": None}, local_vars)
+        except SyntaxError as e:
+            raise ValueError(
+                f"The expression syntax is wrong '{expression}': {e}"
+            ) from e
+        except Exception as e:
+            raise ValueError(
+                f"Error evaluating math expression '{expression}': {e}"
+            )
+        
+        return (float(result), int(round(result)), str(round(result, 3)))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 class Eden_RepeatLatentBatch:

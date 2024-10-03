@@ -55,5 +55,6 @@ NODE_CLASS_MAPPINGS = {
     "Eden_RepeatLatentBatch": Eden_RepeatLatentBatch,
     "Extend_Sequence": Extend_Sequence,
     "Eden_DetermineFrameCount": Eden_DetermineFrameCount,
+    "Eden_Math": Eden_Math,
 }
 
