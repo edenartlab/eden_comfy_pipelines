@@ -85,19 +85,23 @@ class Eden_Math:
         return (float(result), int(round(result)), str(round(result, 3)))
 
 
+class IP_Adapter_Settings_Distribution:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "weight": ("FLOAT", {"default": 1.0, "min": -1.0, "max": 2.0, "step": 0.01}),
+                "weight_type": (["linear", "ease in", "ease out", 'ease in-out', 'reverse in-out', 'weak input', 'weak output', 'weak middle', 'strong middle', 'style transfer', 'composition', 'strong style transfer', 'style and composition', 'style transfer precise', 'composition precise'],),
+            },
+        }
+    RETURN_TYPES = ("FLOAT", any_typ)
+    RETURN_NAMES = ("weight", "weight_type")
+    FUNCTION = "set"
+    CATEGORY = "Eden 🌱/general"
 
-
-
-
-
-
-
-
-
-
-
-
-
+    def set(self, weight, weight_type):
+        return (weight, weight_type)
+    
 
 class Eden_RepeatLatentBatch:
     @classmethod

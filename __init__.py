@@ -56,5 +56,6 @@ NODE_CLASS_MAPPINGS = {
     "Extend_Sequence": Extend_Sequence,
     "Eden_DetermineFrameCount": Eden_DetermineFrameCount,
     "Eden_Math": Eden_Math,
+    "IP_Adapter_Settings_Distribution": IP_Adapter_Settings_Distribution,
 }
 
