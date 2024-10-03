@@ -58,13 +58,12 @@ class Eden_DetermineFrameCount:
     FUNCTION = "determine_frame_count"
     CATEGORY = "Eden 🌱/general"
 
-    def determine_frame_count(self, n_target_frames, policy, n_source_frames=None):
+    def determine_frame_count(self, n_target_frames, n_source_frames, policy):
         # Handle the case where n_target_frames is 0
         if n_target_frames == 0:
             return (0,)
         
-        # If n_source_frames is None, 0, or equal to 1, output n_target_frames
-        if n_source_frames is None or n_source_frames <= 1:
+        if n_source_frames <= 1:
             return (n_target_frames,)
         
         # Calculate output based on policy
