@@ -500,11 +500,11 @@ class LoadRandomImage:
         random.seed(seed)
         random.shuffle(image_paths)
 
-        if sort:
-            image_paths = sorted(image_paths)
-
         if n_images > 0:
             image_paths = image_paths[:n_images]
+
+        if sort:
+            image_paths = sorted(image_paths)
 
         imgs = [Image.open(image_path) for image_path in image_paths]
         output_images = []
