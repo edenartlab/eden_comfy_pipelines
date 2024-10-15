@@ -471,7 +471,7 @@ def get_uniformly_sized_crops(imgs, target_n_pixels=2048**2):
 from PIL import Image, ImageOps, ImageSequence
 class LoadRandomImage:
     def __init__(self):
-        self.img_extensions = [".png", ".jpg", ".jpeg", ".bmp", ".webp"]
+        self.img_extensions = [".png", ".jpg", ".jpeg", ".bmp", ".webp", ".JPEG", ".JPG"]
 
     @classmethod
     def INPUT_TYPES(s):
@@ -492,43 +492,57 @@ class LoadRandomImage:
     def load_image(self, folder, n_images, seed, sort, loop_sequence):
         image_paths = [os.path.join(folder, f) for f in os.listdir(folder)]
         image_paths = [f for f in image_paths if os.path.isfile(f)]
-        # filter using file extensions:
+        # Filter using file extensions
         image_paths = [f for f in image_paths if any([f.endswith(ext) for ext in self.img_extensions])]
-        # filter using image headers:
-        image_paths = [f for f in image_paths if imghdr.what(f)]
+        valid_image_paths = []
+        
+        for f in image_paths:
+            if imghdr.what(f):
+                valid_image_paths.append(f)
+            else:
+                try:
+                    # Attempt to open the image even if imghdr fails
+                    img = Image.open(f)
+                    img.verify()  # Ensure it's a valid image
+                    valid_image_paths.append(f)
+                except Exception as e:
+                    print(f"Skipping invalid image: {f} - {str(e)}")
 
         random.seed(seed)
-        random.shuffle(image_paths)
+        random.shuffle(valid_image_paths)
 
         if n_images > 0:
-            image_paths = image_paths[:n_images]
+            valid_image_paths = valid_image_paths[:n_images]
 
         if sort:
-            image_paths = sorted(image_paths)
+            valid_image_paths = sorted(valid_image_paths)
 
-        imgs = [Image.open(image_path) for image_path in image_paths]
-        output_images = []
-        for img in imgs:
-            img = ImageOps.exif_transpose(img)
+        imgs = []
+        for image_path in valid_image_paths:
+            try:
+                img = Image.open(image_path)
+                img = ImageOps.exif_transpose(img)  # Correct orientation based on EXIF if possible
+            except Exception as e:
+                print(f"Error during EXIF transpose for {image_path}: {str(e)}")
+
             if img.mode == 'I':
                 img = img.point(lambda i: i * (1 / 255))
+
             image = img.convert("RGB")
             image = np.array(image).astype(np.float32) / 255.0
-            output_images.append(image)
+            imgs.append(image)
 
-        if loop_sequence:
-            # Make sure the last image is the same as the first image:
-            output_images.append(output_images[0])
+        if loop_sequence and len(imgs) > 1:
+            imgs.append(imgs[0])  # Loop back to the first image
 
-        if len(output_images) > 1:
-            output_images = get_uniformly_sized_crops(output_images, target_n_pixels=1024**2)
-            output_images = [torch.from_numpy(output_image)[None,] for output_image in output_images]
-            output_image = torch.cat(output_images, dim=0)
+        if len(imgs) > 1:
+            imgs = get_uniformly_sized_crops(imgs, target_n_pixels=1024**2)
+            imgs = [torch.from_numpy(img)[None,] for img in imgs]
+            output_image = torch.cat(imgs, dim=0)
         else:
-            output_image = torch.from_numpy(output_images[0])[None,]
+            output_image = torch.from_numpy(imgs[0])[None,]
 
         return (output_image,)
-
 
 class LoadImagesByFilename:
     def __init__(self):
