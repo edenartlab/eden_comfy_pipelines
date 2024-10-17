@@ -17,10 +17,6 @@ class Animation:
         self.shades = np.linspace(255, 0, self.num_shades, dtype=np.uint8)
 
     def generate_frame(self, frame_number):
-        if self.mode == "zooming_spirals":
-            return self.zooming_spirals(frame_number)
-        elif self.mode == "panning_rectangles":
-            return self.panning_rectangles(frame_number)
         elif self.mode == "concentric_circles":
             return self.concentric_circles(frame_number)
         elif self.mode == "rotating_segments":
@@ -31,71 +27,10 @@ class Animation:
             return self.horizontal_stripes(frame_number)
         elif self.mode == "progressive_rotating_segment":
             return self.progressive_rotating_segment(frame_number)
-        elif self.mode == "concentric_triangles":
-            return self.concentric_triangles(frame_number)
         elif self.mode == "concentric_rectangles":
             return self.concentric_rectangles(frame_number)
         else:
             raise ValueError("Unknown mode")
-
-    def zooming_spirals(self, frame_number):
-        x, y = np.meshgrid(np.linspace(-1, 1, self.width), np.linspace(-1, 1, self.height))
-        r = np.sqrt(x**2 + y**2)
-        theta = np.arctan2(y, x)
-
-        # Calculate the spiral pattern
-        spiral = (r + theta / (2 * np.pi)) % 1.0
-
-        # Calculate the zoom effect
-        zoom_factor = 1 + frame_number / self.total_frames
-        zoomed_spiral = (spiral * zoom_factor) % 1.0
-
-        # Calculate the rotation
-        rotation_speed = 2 * np.pi / self.total_frames
-        rotated_spiral = (zoomed_spiral + frame_number * rotation_speed) % 1.0
-
-        # Map the spiral values to shade indices
-        shade_indices = np.floor(rotated_spiral * self.num_shades).astype(int)
-
-        # Create the frame
-        frame = self.shades[shade_indices]
-        return cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
-            
-    def concentric_triangles(self, frame_number):
-        x, y = np.meshgrid(np.linspace(-1, 1, self.width), np.linspace(-1, 1, self.height))
-        
-        frames_per_shade = self.total_frames // self.num_shades
-        shade_idx = (frame_number // frames_per_shade) % self.num_shades
-        frame_in_shade = frame_number % frames_per_shade
-        
-        max_radius = np.sqrt(2)
-        scale_factor = max_radius / frames_per_shade
-        current_radius = frame_in_shade * scale_factor
-        
-        triangle_shade_idx = shade_idx
-        background_shade_idx = (shade_idx + 1) % self.num_shades
-        
-        height = np.sqrt(3) / 2
-        vertices = np.array([
-            [0, 2 * height * current_radius],
-            [-current_radius, -height * current_radius],
-            [current_radius, -height * current_radius]
-        ])
-
-        def sign(p1, p2, p3):
-            return (p1[:, :, 0] - p3[0]) * (p2[1] - p3[1]) - (p2[0] - p3[0]) * (p1[:, :, 1] - p3[1])
-
-        pts = np.dstack((x, y))
-        d1 = sign(pts, vertices[0], vertices[1])
-        d2 = sign(pts, vertices[1], vertices[2])
-        d3 = sign(pts, vertices[2], vertices[0])
-        
-        mask = (d1 >= 0) & (d2 >= 0) & (d3 >= 0)
-
-        frame = np.full((self.height, self.width), self.shades[background_shade_idx], dtype=np.uint8)
-        frame[mask] = self.shades[triangle_shade_idx]
-
-        return cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
 
     def concentric_rectangles(self, frame_number):
         x, y = np.meshgrid(np.linspace(-self.width // 2, self.width // 2, self.width), np.linspace(-self.height // 2, self.height // 2, self.height))
@@ -217,7 +152,7 @@ class Animation_RGB_Mask:
                 "num_colors": ("INT", {"default": 3, "min": 1}),
                 "bands_visible_per_frame": ("FLOAT", {"default": 1.0, "min": 0.1, "step": 0.01}),
                 "angle": ("FLOAT", {"default": 0, "min": 0, "max": 360}),
-                "mode": (["concentric_circles", "concentric_triangles", "concentric_rectangles", "rotating_segments", "progressive_rotating_segment", "vertical_stripes", "horizontal_stripes"], ),
+                "mode": (["concentric_circles", "concentric_rectangles", "rotating_segments", "progressive_rotating_segment", "vertical_stripes", "horizontal_stripes"], ),
                 "width": ("INT", {"default": 512, "min": 24}),
                 "height": ("INT", {"default": 512, "min": 24}),
                 "invert_motion": ("BOOLEAN", {"default": False}),
