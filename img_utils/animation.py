@@ -50,7 +50,8 @@ class Animation:
 
         shade_indices = (radius / scale_factor + phase_shift) % self.num_shades
         shade_indices = np.floor(shade_indices).astype(int)
-        
+        shade_indices = np.mod(shade_indices, self.num_shades)  
+
         frame = self.shades[shade_indices]
         return cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
 
@@ -68,6 +69,7 @@ class Animation:
 
         shade_indices = (distance_to_center / scale_factor + phase_shift) % self.num_shades
         shade_indices = np.floor(shade_indices).astype(int)
+        shade_indices = np.mod(shade_indices, self.num_shades)
 
         frame = self.shades[shade_indices]
         return cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
@@ -85,11 +87,7 @@ class Animation:
         
         # Calculate shade indices and apply modulo to ensure valid indices
         shade_indices = ((angle / (2 * np.pi)) * self.num_shades + phase_shift) % self.num_shades
-        
-        # Use floor to convert to integers, and ensure indices stay within bounds
         shade_indices = np.floor(shade_indices).astype(int)
-        
-        # Ensure that indices are within bounds by applying modulo again
         shade_indices = np.mod(shade_indices, self.num_shades)
         
         frame = self.shades[shade_indices]
@@ -108,6 +106,7 @@ class Animation:
 
         shade_indices = (xv / scale_factor + phase_shift) % self.num_shades
         shade_indices = np.floor(shade_indices).astype(int)
+        shade_indices = np.mod(shade_indices, self.num_shades)
         
         frame = self.shades[shade_indices]
         return cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
@@ -124,6 +123,7 @@ class Animation:
 
         shade_indices = (yv / scale_factor + phase_shift) % self.num_shades
         shade_indices = np.floor(shade_indices).astype(int)
+        shade_indices = np.mod(shade_indices, self.num_shades)
         
         frame = self.shades[shade_indices]
         return cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
@@ -199,7 +199,6 @@ class Animation_RGB_Mask:
                           "horizontal_stripes_up", "horizontal_stripes_down"], ),
                 "width": ("INT", {"default": 512, "min": 24}),
                 "height": ("INT", {"default": 512, "min": 24}),
-                "invert_motion": ("BOOLEAN", {"default": False}),
             }
         }
 
@@ -208,7 +207,7 @@ class Animation_RGB_Mask:
     RETURN_NAMES = ("IMAGE","num_colors","width","height",)
     FUNCTION = "generate_animation"
 
-    def generate_animation(self, total_frames, num_colors, bands_visible_per_frame, angle, mode, width, height, invert_motion):
+    def generate_animation(self, total_frames, num_colors, bands_visible_per_frame, angle, mode, width, height):
 
         animation = Animation(width, height, total_frames, num_colors, bands_visible_per_frame, angle, mode)
         animation_frames = animation.create_animation()
@@ -220,17 +219,14 @@ class Animation_RGB_Mask:
         # Convert to torch cpu:
         animation_frames = torch.from_numpy(animation_frames).cpu()
 
-        if invert_motion:
-            animation_frames = animation_frames.flip(0)
-
         return animation_frames,num_colors,width,height
     
 # Example usage
 if __name__ == "__main__":
     width, height = 500, 500  # Canvas size
-    total_frames = 100  # Total number of frames in the animation
-    num_colors = 4  # Number of discrete colors
-    bands_visible_per_frame = 1.0  # Adjust the number of visible bands per frame
+    total_frames = 48  # Total number of frames in the animation
+    num_colors = 3  # Number of discrete colors
+    bands_visible_per_frame = 0.9  # Adjust the number of visible bands per frame
     angle = 90  # Rotation angle
 
     motion_modes = ["concentric_circles_inwards", "concentric_circles_outwards", 
@@ -239,6 +235,8 @@ if __name__ == "__main__":
                           "pushing_segments_clockwise", "pushing_segments_counter_clockwise", 
                           "vertical_stripes_left", "vertical_stripes_right", 
                           "horizontal_stripes_up", "horizontal_stripes_down"]
+    
+    motion_modes = ["concentric_circles_inwards", "concentric_circles_outwards"]
 
     for mode in motion_modes:
         output_file = f'animation_videos/{mode}_{num_colors}_colors_angle_{angle}.mp4'
