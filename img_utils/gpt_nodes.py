@@ -14,7 +14,7 @@ try:
 except:
     OPENAI_API_KEY = None
     client = None
-    print("WARNING: Could not find OPENAI_API_KEY in .env, disabling gpt prompt generation.")
+    print("Eden_Comfy_Pipelines: WARNING: Could not find OPENAI_API_KEY in .env, disabling gpt prompt generation.")
 
 
 class Eden_gpt4_node:
