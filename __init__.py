@@ -57,5 +57,6 @@ NODE_CLASS_MAPPINGS = {
     "Eden_DetermineFrameCount": Eden_DetermineFrameCount,
     "Eden_Math": Eden_Math,
     "IP_Adapter_Settings_Distribution": IP_Adapter_Settings_Distribution,
+    "Eden_StringHash": Eden_StringHash
 }
 

@@ -1,9 +1,44 @@
 import sys, os, time, math
+import hashlib
 import folder_paths
 from statistics import mean
 
 def find_comfy_models_dir():
     return str(folder_paths.models_dir)
+
+class Eden_StringHash:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "input_string": ("STRING", {"default": "", "multiline": True}),
+                "hash_length": ("INT", {
+                    "default": 8,
+                    "min": 4,
+                    "max": 64,
+                    "step": 1,
+                }),
+            }
+        }
+
+    RETURN_TYPES = ("INT", "STRING")
+    RETURN_NAMES = ("hash_int", "hash_string")
+    FUNCTION = "generate_hash"
+    CATEGORY = "Eden 🌱/general"
+    DESCRIPTION = "Generates a deterministic hash from an input string with configurable length"
+
+    def generate_hash(self, input_string: str, hash_length: int = 8):
+        hasher = hashlib.md5(input_string.encode('utf-8'))
+        
+        # Get the first N bytes of the hash and convert to integer
+        hash_bytes = hasher.digest()[:min(8, hash_length)]
+        hash_int = int.from_bytes(hash_bytes, byteorder='big')
+        
+        # Return a truncated hex string based on desired length
+        hash_string = hasher.hexdigest()[:hash_length]
+        
+        return (hash_int, hash_string,)
+    
 
 class Eden_Seed:
     @classmethod
@@ -102,6 +137,7 @@ class IP_Adapter_Settings_Distribution:
     def set(self, weight, weight_type):
         return (weight, weight_type)
     
+
 
 class Eden_RepeatLatentBatch:
     @classmethod
