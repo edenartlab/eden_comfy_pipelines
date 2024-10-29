@@ -172,36 +172,39 @@ class Eden_DetermineFrameCount:
                 "n_target_frames": ("INT", {"default": 24, "min": 0, "max": 1024}),
                 "n_source_frames": ("INT", {"default": 1, "min": 0, "max": 1024}),
                 "policy": (["closest", "round down", "round up"],),
+                "min_frames": ("INT", {"default": 1, "min": 0, "max": 1024, "step": 1}),
+                "max_frames": ("INT", {"default": 1024, "min": 0, "max": 1024, "step": 1}),
             },
         }
+    
     RETURN_TYPES = ("INT",)
     FUNCTION = "determine_frame_count"
     CATEGORY = "Eden 🌱/general"
 
-    def determine_frame_count(self, n_target_frames, n_source_frames, policy):
-        # Handle the case where n_target_frames is 0
+    def determine_frame_count(self, n_target_frames, n_source_frames, policy, min_frames, max_frames):
+        # Validate min/max values
+        if min_frames > max_frames:
+            min_frames, max_frames = max_frames, min_frames
+
+        # Early returns for special cases
         if n_target_frames == 0:
-            return (0,)
+            return (max(min_frames, min(0, max_frames)),)
         
         if n_source_frames <= 1:
-            return (n_target_frames,)
+            return (max(min_frames, min(n_target_frames, max_frames)),)
         
         # Calculate output based on policy
+        result = n_target_frames  # default fallback
+        
         if policy == "closest":
-            # Closest multiple of n_source_frames to n_target_frames
-            closest_multiple = round(n_target_frames / n_source_frames) * n_source_frames
-            return (closest_multiple,)
+            result = round(n_target_frames / n_source_frames) * n_source_frames
         elif policy == "round down":
-            # Largest multiple of n_source_frames smaller than or equal to n_target_frames
-            round_down_multiple = (n_target_frames // n_source_frames) * n_source_frames
-            
-            if round_down_multiple <= n_source_frames:
-                round_down_multiple = n_source_frames
-
-            return (round_down_multiple,)
+            result = (n_target_frames // n_source_frames) * n_source_frames
+            result = max(n_source_frames, result)  # Ensure we don't go below n_source_frames
         elif policy == "round up":
-            # Smallest multiple of n_source_frames greater than or equal to n_target_frames
-            round_up_multiple = math.ceil(n_target_frames / n_source_frames) * n_source_frames
-            return (round_up_multiple,)
-
-        return (n_target_frames,)
+            result = math.ceil(n_target_frames / n_source_frames) * n_source_frames
+        
+        # Clamp the result between min and max frames
+        result = max(min_frames, min(result, max_frames))
+        
+        return (int(result),)
