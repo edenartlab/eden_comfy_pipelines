@@ -56,7 +56,9 @@ NODE_CLASS_MAPPINGS = {
     "Extend_Sequence": Extend_Sequence,
     "Eden_DetermineFrameCount": Eden_DetermineFrameCount,
     "Eden_Math": Eden_Math,
+    "Eden_Image_Math": Eden_Image_Math,
     "IP_Adapter_Settings_Distribution": IP_Adapter_Settings_Distribution,
-    "Eden_StringHash": Eden_StringHash
+    "Eden_StringHash": Eden_StringHash,
+    "ImageFolderIterator": ImageFolderIterator
 }
 

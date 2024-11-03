@@ -1,7 +1,8 @@
-import sys, os, time, math
+import sys, os, time, math, re
 import hashlib
 import folder_paths
 from statistics import mean
+import torch
 
 def find_comfy_models_dir():
     return str(folder_paths.models_dir)
@@ -119,6 +120,170 @@ class Eden_Math:
         
         return (float(result), int(round(result)), str(round(result, 3)))
 
+class Eden_Image_Math:
+    """Node to evaluate a simple math expression on image or mask tensors"""
+    
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "expression": ("STRING", {"default": "", "multiline": False}),
+                "conversion_mode": (["mean", "r", "g", "b"], {"default": "mean"}),
+            },
+            "optional": {
+                "a": (any_typ, {"default": None}),
+                "b": (any_typ, {"default": None}),
+                "c": (any_typ, {"default": None}),
+            }
+        }
+
+    FUNCTION = "eval_expression"
+    RETURN_TYPES = ("IMAGE", "MASK")
+    CATEGORY = "Eden 🌱/image"
+    DESCRIPTION = (
+        "Apply math expression to image/mask tensors a,b and c, supports basic math and functions. "
+        "Example: 'sin(a*pi) * b + c' applies trigonometric operation to a, multiplies by b and adds c. "
+        "Masks are automatically broadcasted to match image dimensions. "
+        "Returns both IMAGE and MASK formats with configurable RGB->mask conversion behavior."
+    )
+
+    def convert_mask_to_image(self, mask_tensor):
+        """Convert a mask tensor (B,H,W,1) to image tensor (B,H,W,3)"""
+        return mask_tensor.repeat(1, 1, 1, 3)
+
+    def convert_image_to_mask(self, image_tensor, mode="mean"):
+        """Convert an image tensor (B,H,W,3) to mask tensor (B,H,W,1)"""
+        if mode == "mean":
+            return torch.mean(image_tensor, dim=-1, keepdim=True)
+        elif mode in ["r", "g", "b"]:
+            channel = {"r": 0, "g": 1, "b": 2}[mode]
+            return image_tensor[:, :, :, channel:channel+1]
+        else:
+            raise ValueError(f"Unsupported conversion mode: {mode}")
+
+    def eval_expression(self, expression: str, conversion_mode: str, a=None, b=None, c=None):
+        # Updated pattern to properly match allowed characters without problematic escapes
+        allowed_pattern = r'^[a-zA-Z0-9\s+\-*/(),.\^]+$'
+        if not re.match(allowed_pattern, expression):
+            raise ValueError(f"Expression contains invalid characters: {expression}")
+
+        # Check which variables are used in the expression
+        used_vars = {var: var in expression for var in ['a', 'b', 'c']}
+
+        # Validate inputs against expression needs
+        if used_vars['a'] and a is None:
+            raise ValueError("Expression uses 'a' but no input was provided for a")
+        if used_vars['b'] and b is None:
+            raise ValueError("Expression uses 'b' but no input was provided for b")
+        if used_vars['c'] and c is None:
+            raise ValueError("Expression uses 'c' but no input was provided for c")
+
+        # Create namespace for evaluation
+        namespace = {}
+
+        # Helper function to handle broadcasting of masks to match image dimensions
+        def broadcast_input(tensor, target_shape):
+            if tensor is None:
+                return None
+                
+            # Check if input is a mask (B,H,W,1) vs image (B,H,W,3)
+            is_mask = tensor.shape[-1] == 1
+            target_channels = target_shape[-1]
+            
+            # Handle broadcasting between masks and images
+            if is_mask and target_channels == 3:
+                tensor = self.convert_mask_to_image(tensor)
+            elif not is_mask and target_channels == 1:
+                tensor = self.convert_image_to_mask(tensor, conversion_mode)
+            
+            # Handle batch dimension
+            if tensor.shape[0] == 1 and target_shape[0] > 1:
+                tensor = tensor.repeat(target_shape[0], 1, 1, 1)
+            
+            # Use torch's broadcast_to for final shape matching
+            try:
+                new_shape = list(target_shape)
+                new_shape[-1] = tensor.shape[-1]  # Preserve channel dimension
+                tensor = torch.broadcast_to(tensor, new_shape)
+            except RuntimeError as e:
+                raise ValueError(f"Cannot broadcast tensor of shape {tensor.shape} to shape {new_shape}: {str(e)}")
+                
+            return tensor
+
+        # Determine target shape from first input
+        target_shape = a.shape if a is not None else (b.shape if b is not None else c.shape)
+        
+        # Process inputs
+        if a is not None:
+            namespace['a'] = broadcast_input(a, target_shape)
+        if b is not None:
+            namespace['b'] = broadcast_input(b, target_shape)
+        if c is not None:
+            namespace['c'] = broadcast_input(c, target_shape)
+
+        # Add mathematical constants
+        namespace['pi'] = math.pi
+        namespace['e'] = math.e
+
+        # Add comprehensive set of torch operations
+        torch_functions = {
+            # Basic math
+            'sqrt': torch.sqrt,
+            'pow': torch.pow,
+            '^': torch.pow,
+            'abs': torch.abs,
+            'round': torch.round,
+            'ceil': torch.ceil,
+            'floor': torch.floor,
+            'trunc': torch.trunc,
+            'sign': torch.sign,
+
+            # Trigonometric functions
+            'sin': torch.sin,
+            'cos': torch.cos,
+            'tan': torch.tan,
+            'asin': torch.asin,
+            'acos': torch.acos,
+            'atan': torch.atan,
+            'sinh': torch.sinh,
+            'cosh': torch.cosh,
+            'tanh': torch.tanh,
+            'asinh': torch.asinh,
+            'acosh': torch.acosh,
+            'atanh': torch.atanh,
+            
+            # Exponential and logarithmic
+            'exp': torch.exp,
+            'log': torch.log,
+            'log2': torch.log2,
+            'log10': torch.log10,
+            
+            # Statistics
+            'mean': torch.mean,
+            'min': torch.min,
+            'max': torch.max,
+            'median': torch.median,
+            'std': torch.std,
+            'var': torch.var
+        }
+        namespace.update(torch_functions)
+
+        # Replace caret symbol with power operator
+        expression = expression.replace('^', '**')
+
+        try:
+            result = eval(expression, {"__builtins__": None}, namespace)
+        except Exception as e:
+            raise ValueError(f"Error evaluating expression '{expression}': {str(e)}")
+
+        # Always ensure result is in float format
+        result = result.float()
+
+        # Always return both IMAGE and MASK formats
+        if result.shape[-1] == 3:
+            return (result, self.convert_image_to_mask(result, conversion_mode))
+        else:
+            return (self.convert_mask_to_image(result), result)
 
 class IP_Adapter_Settings_Distribution:
     @classmethod

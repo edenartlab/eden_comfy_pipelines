@@ -544,6 +544,85 @@ class LoadRandomImage:
 
         return (output_image,)
 
+
+class ImageFolderIterator:
+    def __init__(self):
+        self.img_extensions = [".png", ".jpg", ".jpeg", ".bmp", ".webp", ".JPEG", ".JPG"]
+        
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "folder": ("STRING", {"default": "."}),
+                "index": ("INT", {"default": 0, "min": 0, "max": 99999}),
+                "sort": ("BOOLEAN", {"default": True}),
+            }
+        }
+    
+    CATEGORY = "Eden 🌱"
+    RETURN_TYPES = ("IMAGE", "STRING")
+    RETURN_NAMES = ("image", "filename")
+    FUNCTION = "load_image"
+    
+    def get_image_paths(self, folder, sort):
+        # List all files in the folder
+        image_paths = [os.path.join(folder, f) for f in os.listdir(folder)]
+        image_paths = [f for f in image_paths if os.path.isfile(f)]
+        # Filter using file extensions
+        image_paths = [f for f in image_paths if any([f.endswith(ext) for ext in self.img_extensions])]
+        valid_image_paths = []
+        
+        # Validate images
+        for f in image_paths:
+            if imghdr.what(f):
+                valid_image_paths.append(f)
+            else:
+                try:
+                    img = Image.open(f)
+                    img.verify()
+                    valid_image_paths.append(f)
+                except Exception as e:
+                    print(f"Skipping invalid image: {f} - {str(e)}")
+        
+        # Sort if requested
+        if sort:
+            valid_image_paths = sorted(valid_image_paths)
+            
+        return valid_image_paths
+    
+    def load_image(self, folder, index, sort):
+        valid_image_paths = self.get_image_paths(folder, sort)
+        
+        if not valid_image_paths:
+            raise ValueError(f"No valid images found in folder: {folder}")
+        
+        # Wrap around if index exceeds number of images
+        actual_index = index % len(valid_image_paths)
+        image_path = valid_image_paths[actual_index]
+        
+        try:
+            # Load and process image
+            img = Image.open(image_path)
+            img = ImageOps.exif_transpose(img)  # Correct orientation based on EXIF
+            
+            if img.mode == 'I':
+                img = img.point(lambda i: i * (1 / 255))
+            
+            image = img.convert("RGB")
+            image = np.array(image).astype(np.float32) / 255.0
+            
+            # Add batch dimension
+            output_image = torch.from_numpy(image)[None,]
+            
+            # Get filename without extension
+            filename = os.path.splitext(os.path.basename(image_path))[0]
+            
+            return (output_image, filename)
+            
+        except Exception as e:
+            raise RuntimeError(f"Error processing image {image_path}: {str(e)}")
+        
+        
 class LoadImagesByFilename:
     def __init__(self):
         self.img_extensions = [".png", ".jpg", ".jpeg", ".bmp", ".webp"]
