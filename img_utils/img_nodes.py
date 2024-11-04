@@ -297,6 +297,10 @@ def gaussian_kernel_2d(sigma, size=0):
 from sklearn.cluster import KMeans
 from .img_utils import lab_to_rgb, rgb_to_lab
 import numpy as np
+from PIL.PngImagePlugin import PngInfo
+import json
+import torch
+import torch.nn.functional as F
 
 class MaskFromRGB_KMeans:
     @classmethod
@@ -398,10 +402,130 @@ class MaskFromRGB_KMeans:
 
         return masks[:, 0], masks[:, 1], masks[:, 2], masks[:, 3], masks[:, 4], masks[:, 5], masks[:, 6], masks[:, 7]
 
+class Eden_MaskCombiner:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "mask_a": ("MASK",),
+                "rel_strength_a": ("FLOAT", {"default": 0.5, "min": -1.0, "max": 1.0, "step": 0.01}),
+                "rel_strength_b": ("FLOAT", {"default": 0.0, "min": -1.0, "max": 1.0, "step": 0.01}),
+                "rel_strength_c": ("FLOAT", {"default": 0.0, "min": -1.0, "max": 1.0, "step": 0.01}),
+                "lower_clamp": ("FLOAT", {"default": 2.0, "min": 0.0, "max": 50.0, "step": 0.5}),
+                "upper_clamp": ("FLOAT", {"default": 98.0, "min": 50.0, "max": 100.0, "step": 0.5}),
+                "gamma": ("FLOAT", {"default": 0.7, "min": 0.1, "max": 2.0, "step": 0.05})
+            },
+            "optional": {
+                "mask_b": ("MASK", {"default": None}),
+                "mask_c": ("MASK", {"default": None})
+            }
+        }
+    
+    RETURN_TYPES = ("MASK",)
+    FUNCTION = "combine_masks"
+    CATEGORY = "Eden 🌱"
 
+    def soft_clamp(self, x, min_val, max_val, smoothness=0.1):
+        """Apply soft clamping using sigmoid function in PyTorch"""
+        range_val = max_val - min_val
+        normalized = (x - min_val) / range_val
+        return torch.sigmoid((normalized - 0.5) / smoothness)
 
-from PIL.PngImagePlugin import PngInfo
-import json
+    def adaptive_histogram_eq(self, img, num_bins=256):
+        """Apply adaptive histogram equalization using PyTorch"""
+        # Ensure input is in correct range
+        img = torch.clamp(img, 0, 1)
+        
+        # Calculate histogram
+        hist = torch.histc(img, bins=num_bins, min=0, max=1)
+        
+        # Calculate CDF
+        cdf = torch.cumsum(hist, dim=0)
+        cdf_normalized = cdf * hist.min() / cdf.max()
+        
+        # Create bin centers
+        bin_centers = torch.linspace(0, 1, num_bins, device=img.device)
+        
+        # Interpolate values
+        img_flat = img.reshape(-1)
+        indices = torch.bucketize(img_flat, bin_centers)
+        indices = torch.clamp(indices, 0, num_bins - 1)
+        
+        return cdf_normalized[indices].reshape(img.shape)
+
+    def compute_quantile(self, tensor, q, max_elements = 10000):
+        """Compute quantile for large tensors by sampling"""
+        # If tensor is too large, sample it
+        if tensor.numel() > max_elements:
+            indices = torch.randperm(tensor.numel(), device=tensor.device)[:max_elements]
+            tensor_sample = tensor.view(-1)[indices]
+            return torch.quantile(tensor_sample, q)
+        else:
+            return torch.quantile(tensor, q)
+
+    @torch.no_grad()
+    def combine_masks(self, mask_a, rel_strength_a, lower_clamp, upper_clamp, gamma,
+                     mask_b=None, mask_c=None, rel_strength_b=None, rel_strength_c=None):
+        """
+        ComfyUI node function to combine multiple masks with improved signal preservation.
+        All operations are performed in PyTorch.
+        """
+        device = mask_a.device
+
+        # Apply gamma correction
+        mask_a = torch.pow(mask_a, gamma)
+        masks = [mask_a]
+        weights = [rel_strength_a]
+        
+        # Process optional masks
+        if mask_b is not None and rel_strength_b != 0:
+            mask_b = torch.pow(mask_b, gamma)
+            masks.append(mask_b)
+            weights.append(rel_strength_b)
+            
+        if mask_c is not None and rel_strength_c != 0:
+            mask_c = torch.pow(mask_c, gamma)
+            masks.append(mask_c)
+            weights.append(rel_strength_c)
+        
+        # Process masks with strength values
+        processed_masks = []
+        processed_weights = []
+        
+        for mask, strength in zip(masks, weights):
+            if strength != 0:
+                if strength < 0:
+                    processed_masks.append(1 - mask)
+                    processed_weights.append(abs(strength))
+                else:
+                    processed_masks.append(mask)
+                    processed_weights.append(strength)
+        
+        # If no valid masks, return mid-gray
+        if not processed_masks:
+            return (torch.full_like(mask_a, 0.5),)
+        
+        # Normalize weights using softmax
+        weights_tensor = torch.tensor(processed_weights, device=device)
+        weights_tensor = F.softmax(weights_tensor, dim=0)
+        
+        # Combine masks
+        combined = torch.zeros_like(mask_a)
+        for mask, weight in zip(processed_masks, weights_tensor):
+            combined += mask * weight
+
+        # Apply adaptive histogram equalization
+        #combined = self.adaptive_histogram_eq(combined)
+        
+        # Calculate and apply adaptive clamp thresholds
+        lower_threshold = self.compute_quantile(combined, lower_clamp/100)
+        upper_threshold = self.compute_quantile(combined, upper_clamp/100)
+        combined = self.soft_clamp(combined, lower_threshold, upper_threshold)
+        
+        # Apply inverse gamma correction
+        combined = torch.pow(combined, 1/gamma)
+        
+        return (combined,)
 
 def convert_pnginfo_to_dict(pnginfo: PngInfo) -> dict:
     """
