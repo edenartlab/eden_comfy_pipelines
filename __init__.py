@@ -60,6 +60,7 @@ NODE_CLASS_MAPPINGS = {
     "IP_Adapter_Settings_Distribution": IP_Adapter_Settings_Distribution,
     "Eden_StringHash": Eden_StringHash,
     "ImageFolderIterator": ImageFolderIterator,
-    "Eden_MaskCombiner": Eden_MaskCombiner
+    "Eden_MaskCombiner": Eden_MaskCombiner,
+    "Eden_DepthSlice_MaskVideo": Eden_DepthSlice_MaskVideo
 }
 
