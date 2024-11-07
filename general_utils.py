@@ -3,6 +3,7 @@ import hashlib
 import folder_paths
 from statistics import mean
 import torch
+from typing import Any, Mapping
 
 def find_comfy_models_dir():
     return str(folder_paths.models_dir)
