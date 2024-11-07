@@ -7,6 +7,31 @@ import torch
 def find_comfy_models_dir():
     return str(folder_paths.models_dir)
 
+class Eden_FloatToInt:
+    @classmethod
+    def INPUT_TYPES(cls) -> Mapping[str, Any]:
+        return {"required": {"a": ("FLOAT", {"default": 0.0, "round": False})}}
+
+    RETURN_TYPES = ("INT",)
+    FUNCTION = "op"
+    CATEGORY = "Eden 🌱/general"
+
+    def op(self, a: float) -> tuple[int]:
+        return (int(a),)
+
+class Eden_IntToFloat:
+    @classmethod
+    def INPUT_TYPES(cls) -> Mapping[str, Any]:
+        return {"required": {"a": ("INT", {"default": 0})}}
+
+    RETURN_TYPES = ("FLOAT",)
+    FUNCTION = "op"
+    CATEGORY = "Eden 🌱/general"
+
+    def op(self, a: int) -> tuple[float]:
+        return (float(a),)
+
+
 class Eden_StringHash:
     @classmethod
     def INPUT_TYPES(s):
