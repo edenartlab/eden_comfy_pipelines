@@ -56,6 +56,7 @@ class Eden_gpt4_node:
         except Exception as e:
             return (f"Error: {str(e)}",)
 
+
 class Eden_GPTPromptEnhancer:
     @classmethod
     def INPUT_TYPES(cls):
@@ -70,8 +71,21 @@ class Eden_GPTPromptEnhancer:
                     "default": "Augment this visual description by adding specific details about lighting, scene elements, composition, and artistic style. Make it more descriptive and specific. Be bold and creative! Limit the final prompt to 100 words."
                 }),
                 "max_token": ("INT", {"default": 500}),
-                "model": (["gpt-4o", "gpt-4-turbo"], {"default": "gpt-4o"}),
+                "model": ([
+                    "gpt-4o",
+                    "gpt-4o-mini",
+                    "gpt-4-turbo",
+                    "gpt-3.5-turbo",
+                ], {"default": "gpt-4o"}),
                 "seed": ("INT", {"default": 0}),
+            },
+            "optional": {
+                "temperature": ("FLOAT", {
+                    "default": 0.7,
+                    "min": 0.0,
+                    "max": 2.0,
+                    "step": 0.1
+                }),
             }
         }
 
@@ -79,7 +93,7 @@ class Eden_GPTPromptEnhancer:
     FUNCTION = "enhance_prompt"
     CATEGORY = "Eden 🌱"
 
-    def enhance_prompt(self, basic_prompt, enhancement_instructions, max_token, model, seed):
+    def enhance_prompt(self, basic_prompt, enhancement_instructions, max_token, model, seed, temperature=0.7):
         try:
             if not client:
                 return ("An OpenAI API key is required for GPT Prompt Enhancer. Make sure to place a .env file in the root directory with your OpenAI API key.",)
@@ -98,6 +112,7 @@ Please enhance this prompt according to the instructions. Provide only the enhan
             response = client.chat.completions.create(
                 model=model,
                 seed=seed,
+                temperature=temperature,
                 messages=[
                     {"role": "system", "content": system_message},
                     {"role": "user", "content": user_message},
@@ -106,12 +121,10 @@ Please enhance this prompt according to the instructions. Provide only the enhan
             )
 
             enhanced_prompt = response.choices[0].message.content
-            
             return (enhanced_prompt,)
             
         except Exception as e:
             return (f"Error in prompt enhancement: {str(e)}",)
-
 
 class ImageDescriptionNode:
     @classmethod
