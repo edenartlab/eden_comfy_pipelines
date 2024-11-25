@@ -39,6 +39,7 @@ NODE_CLASS_MAPPINGS = {
     "Animation_RGB_Mask": Animation_RGB_Mask,
     "ImageDescriptionNode": ImageDescriptionNode,
     "Eden_gpt4_node": Eden_gpt4_node,
+    "Eden_GPTPromptEnhancer": Eden_GPTPromptEnhancer,
     "FolderScanner": FolderScanner,
     "SavePosEmbeds": SavePosEmbeds,
     "VideoFrameSelector": VideoFrameSelector,

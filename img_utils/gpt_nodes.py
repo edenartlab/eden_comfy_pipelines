@@ -56,6 +56,62 @@ class Eden_gpt4_node:
         except Exception as e:
             return (f"Error: {str(e)}",)
 
+class Eden_GPTPromptEnhancer:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "basic_prompt": ("STRING", {
+                    "multiline": True,
+                    "default": "A beautiful landscape"
+                }),
+                "enhancement_instructions": ("STRING", {
+                    "multiline": True,
+                    "default": "Augment this visual description by adding specific details about lighting, scene elements, composition, and artistic style. Make it more descriptive and specific. Be bold and creative! Limit the final prompt to 100 words."
+                }),
+                "max_token": ("INT", {"default": 500}),
+                "model": (["gpt-4o", "gpt-4-turbo"], {"default": "gpt-4o"}),
+                "seed": ("INT", {"default": 0}),
+            }
+        }
+
+    RETURN_TYPES = ("STRING",)
+    FUNCTION = "enhance_prompt"
+    CATEGORY = "Eden 🌱"
+
+    def enhance_prompt(self, basic_prompt, enhancement_instructions, max_token, model, seed):
+        try:
+            if not client:
+                return ("An OpenAI API key is required for GPT Prompt Enhancer. Make sure to place a .env file in the root directory with your OpenAI API key.",)
+
+            # Construct the system message to guide GPT's behavior
+            system_message = """You are a prompt engineering expert. Your task is to enhance and improve the given prompt according to the provided instructions. 
+            Keep the enhanced prompt focused and coherent. Maintain the original intent while adding valuable details and improvements."""
+
+            # Construct the user message combining the prompt and instructions
+            user_message = f"""Original prompt: {basic_prompt}
+
+Enhancement instructions: {enhancement_instructions}
+
+Please enhance this prompt according to the instructions. Provide only the enhanced prompt without any explanations or additional text."""
+
+            response = client.chat.completions.create(
+                model=model,
+                seed=seed,
+                messages=[
+                    {"role": "system", "content": system_message},
+                    {"role": "user", "content": user_message},
+                ],
+                max_tokens=max_token
+            )
+
+            enhanced_prompt = response.choices[0].message.content
+            
+            return (enhanced_prompt,)
+            
+        except Exception as e:
+            return (f"Error in prompt enhancement: {str(e)}",)
+
 
 class ImageDescriptionNode:
     @classmethod
