@@ -1,0 +1,15 @@
+[project]
+name = "eden_comfy_pipelines"
+description = "A set of custom nodes for various purposed, maintained by Eden.art"
+version = "1.0.0"
+license = "LICENSE"
+dependencies = ["clip-interrogator>=0.6.0", "open_clip_torch", "openai", "python-dotenv"]
+
+[project.urls]
+Repository = "https://github.com/edenartlab/eden_comfy_pipelines"
+#  Used by Comfy Registry https://comfyregistry.org
+
+[tool.comfy]
+PublisherId = ""
+DisplayName = "eden_comfy_pipelines"
+Icon = ""
