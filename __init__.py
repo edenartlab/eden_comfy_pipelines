@@ -31,6 +31,7 @@ NODE_CLASS_MAPPINGS = {
     "Eden_Int": Eden_Int,
     "Eden_Float": Eden_Float,
     "Eden_Bool": Eden_Bool,
+    "Eden_BoolBinaryOperation": Eden_BoolBinaryOperation,
     "Eden_String": Eden_String,
     "If ANY execute A else B": Eden_IfExecute,
     "Eden_DebugPrint": Eden_DebugPrint,

@@ -107,6 +107,37 @@ class Eden_Compare:
         return (COMPARE_FUNCTIONS[comparison](a, b),)
 
 
+from typing import Any, Callable, Mapping
+BOOL_BINARY_OPERATIONS: Mapping[str, Callable[[bool, bool], bool]] = {
+    "Nor": lambda a, b: not (a or b),
+    "Xor": lambda a, b: a ^ b,
+    "Nand": lambda a, b: not (a and b),
+    "And": lambda a, b: a and b,
+    "Xnor": lambda a, b: not (a ^ b),
+    "Or": lambda a, b: a or b,
+    "Eq": lambda a, b: a == b,
+    "Neq": lambda a, b: a != b,
+}
+
+class Eden_BoolBinaryOperation:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "op": (list(BOOL_BINARY_OPERATIONS.keys()),),
+                "a": ("BOOLEAN", {"default": False}),
+                "b": ("BOOLEAN", {"default": False}),
+            }
+        }
+
+    RETURN_TYPES = ("BOOLEAN",)
+    FUNCTION = "op"
+    CATEGORY = "Eden 🌱/Logic"
+
+    def op(self, op: str, a: bool, b: bool) -> tuple[bool]:
+        return (BOOL_BINARY_OPERATIONS[op](a, b),)
+
+
 class Eden_IfExecute:
     """
     This node executes IF_TRUE if ANY is True, otherwise it executes IF_FALSE.
