@@ -328,7 +328,68 @@ class IP_Adapter_Settings_Distribution:
     def set(self, weight, weight_type):
         return (weight, weight_type)
     
+import random
+import torch
 
+class Eden_StringReplace:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "input_string": ("STRING", {"default": "", "multiline": True}),
+                "target_text": ("STRING", {"default": "", "multiline": False}),
+                "replace_with": ("STRING", {"default": "", "multiline": False}),
+            }
+        }
+
+    RETURN_TYPES = ("STRING",)
+    FUNCTION = "replace_text"
+    CATEGORY = "Eden 🌱/general"
+    DESCRIPTION = "Replaces all occurrences of target text with replacement text in the input string"
+
+    def replace_text(self, input_string: str, target_text: str, replace_with: str):
+        result = input_string.replace(target_text, replace_with)
+        return (result,)
+
+
+class Eden_RandomPromptFromFile:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "file_path": ("STRING", {"default": "prompts.txt"}),
+                "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
+            }
+        }
+
+    RETURN_TYPES = ("STRING",)
+    FUNCTION = "get_random_prompt"
+    CATEGORY = "Eden 🌱/general"
+    DESCRIPTION = "Reads prompts from a text file (one per line) and returns a random prompt"
+
+    def get_random_prompt(self, file_path: str, seed: int):
+        
+        try:
+            # Read all lines from the file
+            with open(file_path, 'r', encoding='utf-8') as f:
+                lines = [line.strip() for line in f.readlines()]
+            
+            # Filter out empty lines
+            lines = [line for line in lines if line]
+            
+            if not lines:
+                raise ValueError(f"No valid prompts found in file: {file_path}")
+            
+            # Select a prompt
+            index = seed % len(lines)
+            selected_prompt = lines[index]
+            
+            return (selected_prompt,)
+            
+        except FileNotFoundError:
+            raise FileNotFoundError(f"Prompt file not found: {file_path}")
+        except Exception as e:
+            raise Exception(f"Error reading prompt file: {str(e)}")
 
 class Eden_RepeatLatentBatch:
     @classmethod
