@@ -338,7 +338,7 @@ class Eden_StringReplace:
             "required": {
                 "input_string": ("STRING", {"default": "", "multiline": True}),
                 "target_text": ("STRING", {"default": "", "multiline": False}),
-                "replace_with": ("STRING", {"default": "", "multiline": False}),
+                "replace_with": ("STRING", {"default": "", "multiline": True}),
             }
         }
 
