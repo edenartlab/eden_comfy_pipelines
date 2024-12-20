@@ -13,7 +13,6 @@ from video_utils.gradient_mask_video import KeyframeBlender
 from ip_adapter_utils.moodmix_utils import *
 from video_utils.video_interpolation import VideoFrameSelector
 from general_utils import *
-from random_conditioning.random_c_utils import *
 
 NODE_CLASS_MAPPINGS = {
     "CLIP_Interrogator": CLIP_Interrogator,
@@ -69,11 +68,18 @@ NODE_CLASS_MAPPINGS = {
     "Eden_MaskCombiner": Eden_MaskCombiner,
     "Eden_DepthSlice_MaskVideo": Eden_DepthSlice_MaskVideo,
     "KeyframeBlender": KeyframeBlender,
-    "get_random_prompt_from_textfile": get_random_prompt_from_textfile,
-    "SaveConditioning": SaveConditioning,
-    "LoadConditioning": LoadConditioning,
-    "Eden_RandomConditioningSamplerNode": Eden_RandomConditioningSamplerNode,
     "Eden_RandomPromptFromFile": Eden_RandomPromptFromFile,
     "Eden_StringReplace": Eden_StringReplace
 }
 
+try:
+    from random_conditioning.random_c_utils import *
+    # add keys:
+    NODE_CLASS_MAPPINGS_ADD = {
+        "SaveConditioning": SaveConditioning,
+        "LoadConditioning": LoadConditioning,
+        "Eden_RandomConditioningSamplerNode": Eden_RandomConditioningSamplerNode
+    }
+    NODE_CLASS_MAPPINGS.update(NODE_CLASS_MAPPINGS_ADD)
+except:
+    pass
