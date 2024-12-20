@@ -13,7 +13,7 @@ from video_utils.gradient_mask_video import KeyframeBlender
 from ip_adapter_utils.moodmix_utils import *
 from video_utils.video_interpolation import VideoFrameSelector
 from general_utils import *
-from random_conditioning.random_c_utils import *
+#from random_conditioning.random_c_utils import * # this is causing failure and isn't referenced anywhere
 
 NODE_CLASS_MAPPINGS = {
     "CLIP_Interrogator": CLIP_Interrogator,
