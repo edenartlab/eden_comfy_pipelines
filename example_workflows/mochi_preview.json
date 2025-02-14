@@ -1,0 +1,1072 @@
+{
+  "last_node_id": 57,
+  "last_link_id": 116,
+  "nodes": [
+    {
+      "id": 45,
+      "type": "ImageUpscaleWithModel",
+      "pos": [
+        1630,
+        330
+      ],
+      "size": [
+        226.8000030517578,
+        46
+      ],
+      "flags": {},
+      "order": 11,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "upscale_model",
+          "type": "UPSCALE_MODEL",
+          "link": 95
+        },
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 96
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            108
+          ],
+          "slot_index": 0,
+          "shape": 3
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "ImageUpscaleWithModel"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 3,
+      "type": "KSampler",
+      "pos": [
+        960,
+        80
+      ],
+      "size": [
+        315,
+        571
+      ],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 81
+        },
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "link": 46
+        },
+        {
+          "name": "negative",
+          "type": "CONDITIONING",
+          "link": 52
+        },
+        {
+          "name": "latent_image",
+          "type": "LATENT",
+          "link": 38
+        }
+      ],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": [
+            35
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "KSampler"
+      },
+      "widgets_values": [
+        843754196212924,
+        "randomize",
+        30,
+        4.5,
+        "euler",
+        "simple",
+        1,
+        null
+      ]
+    },
+    {
+      "id": 46,
+      "type": "UpscaleModelLoader",
+      "pos": [
+        1610,
+        220
+      ],
+      "size": [
+        278.6866760253906,
+        58
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "UPSCALE_MODEL",
+          "type": "UPSCALE_MODEL",
+          "links": [
+            95
+          ],
+          "shape": 3
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "UpscaleModelLoader"
+      },
+      "widgets_values": [
+        "RealESRGAN_x2plus.pth"
+      ]
+    },
+    {
+      "id": 51,
+      "type": "Eden_Bool",
+      "pos": [
+        70,
+        350
+      ],
+      "size": [
+        315,
+        58
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "BOOLEAN",
+          "type": "BOOLEAN",
+          "links": [],
+          "slot_index": 0
+        }
+      ],
+      "title": "use_frame_interpolation",
+      "properties": {
+        "Node name for S&R": "Eden_Bool"
+      },
+      "widgets_values": [
+        false
+      ]
+    },
+    {
+      "id": 42,
+      "type": "VHS_VideoCombine",
+      "pos": [
+        2509,
+        87
+      ],
+      "size": [
+        757.1685791015625,
+        1085.1685791015625
+      ],
+      "flags": {},
+      "order": 15,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 116
+        },
+        {
+          "name": "audio",
+          "type": "AUDIO",
+          "link": null,
+          "shape": 7
+        },
+        {
+          "name": "meta_batch",
+          "type": "VHS_BatchManager",
+          "link": null,
+          "shape": 7
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": null,
+          "shape": 7
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Filenames",
+          "type": "VHS_FILENAMES",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "VHS_VideoCombine"
+      },
+      "widgets_values": {
+        "frame_rate": 24,
+        "loop_count": 0,
+        "filename_prefix": "Mochi-preview",
+        "format": "video/h264-mp4",
+        "pix_fmt": "yuv420p",
+        "crf": 19,
+        "save_metadata": true,
+        "trim_to_audio": false,
+        "pingpong": false,
+        "save_output": true,
+        "videopreview": {
+          "hidden": false,
+          "paused": false,
+          "params": {
+            "filename": "Mochi-preview_00001.mp4",
+            "subfolder": "",
+            "type": "output",
+            "format": "video/h264-mp4",
+            "frame_rate": 24,
+            "workflow": "Mochi-preview_00001.png",
+            "fullpath": "C:\\Comfy\\ComfyUI\\output\\Mochi-preview_00001.mp4"
+          },
+          "muted": false
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "CLIPTextEncode",
+      "pos": [
+        520,
+        80
+      ],
+      "size": [
+        422.84503173828125,
+        164.31304931640625
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 92
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "links": [
+            46
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "CLIPTextEncode"
+      },
+      "widgets_values": [
+        "closeup face depiction of Eve in the Garden of Eden, smiling and winking at the camera, branches and leaves, forward facing, ecology, compositing, line rendering, luminous, spellbound, veiled, plant manipulation, high contrast, sharp detail, minimal, abstract landscape"
+      ]
+    },
+    {
+      "id": 7,
+      "type": "CLIPTextEncode",
+      "pos": [
+        520,
+        310
+      ],
+      "size": [
+        425.27801513671875,
+        180.6060791015625
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 94
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "links": [
+            52
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "CLIPTextEncode"
+      },
+      "widgets_values": [
+        ""
+      ]
+    },
+    {
+      "id": 21,
+      "type": "EmptyMochiLatentVideo",
+      "pos": [
+        630,
+        540
+      ],
+      "size": [
+        315,
+        130
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": [
+            38
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "EmptyMochiLatentVideo"
+      },
+      "widgets_values": [
+        512,
+        512,
+        49,
+        1
+      ]
+    },
+    {
+      "id": 47,
+      "type": "RIFE VFI",
+      "pos": [
+        2100,
+        220
+      ],
+      "size": [
+        319.20001220703125,
+        198
+      ],
+      "flags": {},
+      "order": 13,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "frames",
+          "type": "IMAGE",
+          "link": 115
+        },
+        {
+          "name": "optional_interpolation_states",
+          "type": "INTERPOLATION_STATES",
+          "link": null,
+          "shape": 7
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            114
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "RIFE VFI"
+      },
+      "widgets_values": [
+        "rife47.pth",
+        24,
+        2,
+        true,
+        true,
+        1
+      ]
+    },
+    {
+      "id": 40,
+      "type": "CheckpointLoaderSimple",
+      "pos": [
+        -100,
+        60
+      ],
+      "size": [
+        557.429443359375,
+        98.6618423461914
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            81
+          ],
+          "slot_index": 0
+        },
+        {
+          "name": "CLIP",
+          "type": "CLIP",
+          "links": [
+            92,
+            94
+          ],
+          "slot_index": 1
+        },
+        {
+          "name": "VAE",
+          "type": "VAE",
+          "links": [
+            93
+          ],
+          "slot_index": 2
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "CheckpointLoaderSimple"
+      },
+      "widgets_values": [
+        "mochi_preview_fp8_scaled.safetensors"
+      ]
+    },
+    {
+      "id": 8,
+      "type": "VAEDecode",
+      "pos": [
+        1320,
+        80
+      ],
+      "size": [
+        210,
+        46
+      ],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "samples",
+          "type": "LATENT",
+          "link": 35
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 93
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            96,
+            107
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "VAEDecode"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 50,
+      "type": "Eden_Bool",
+      "pos": [
+        65.53068542480469,
+        218.08181762695312
+      ],
+      "size": [
+        315,
+        58
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "BOOLEAN",
+          "type": "BOOLEAN",
+          "links": [
+            106,
+            112
+          ],
+          "slot_index": 0
+        }
+      ],
+      "title": "upscale_video",
+      "properties": {
+        "Node name for S&R": "Eden_Bool"
+      },
+      "widgets_values": [
+        false
+      ]
+    },
+    {
+      "id": 55,
+      "type": "DataMonitor",
+      "pos": [
+        1640,
+        180
+      ],
+      "size": [
+        210,
+        262.1600646972656
+      ],
+      "flags": {
+        "collapsed": true
+      },
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "passthrough",
+          "type": "*",
+          "link": null,
+          "shape": 7
+        },
+        {
+          "name": "aux",
+          "type": "*",
+          "link": 106,
+          "shape": 7
+        },
+        {
+          "name": "aux2",
+          "type": "*",
+          "link": null,
+          "shape": 7
+        },
+        {
+          "name": "aux3",
+          "type": "*",
+          "link": null,
+          "shape": 7
+        },
+        {
+          "name": "aux4",
+          "type": "*",
+          "link": null,
+          "shape": 7
+        },
+        {
+          "name": "aux5",
+          "type": "*",
+          "link": null,
+          "shape": 7
+        }
+      ],
+      "outputs": [
+        {
+          "name": "output",
+          "type": "*",
+          "links": [
+            105
+          ],
+          "slot_index": 0
+        }
+      ],
+      "title": "upscale_bool",
+      "properties": {
+        "Node name for S&R": "DataMonitor"
+      },
+      "widgets_values": [
+        "[1,2][%aux%]",
+        "FORMULA"
+      ]
+    },
+    {
+      "id": 54,
+      "type": "UniversalSwitch",
+      "pos": [
+        1620,
+        -110
+      ],
+      "size": [
+        210,
+        226.72984313964844
+      ],
+      "flags": {},
+      "order": 12,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "input1",
+          "type": "*",
+          "link": 107
+        },
+        {
+          "name": "input2",
+          "type": "*",
+          "link": 108,
+          "shape": 7
+        },
+        {
+          "name": "input3",
+          "type": "*",
+          "link": null,
+          "shape": 7
+        },
+        {
+          "name": "input4",
+          "type": "*",
+          "link": null,
+          "shape": 7
+        },
+        {
+          "name": "input5",
+          "type": "*",
+          "link": null,
+          "shape": 7
+        },
+        {
+          "name": "input6",
+          "type": "*",
+          "link": null,
+          "shape": 7
+        },
+        {
+          "name": "selection_in",
+          "type": "INT",
+          "link": 105,
+          "widget": {
+            "name": "selection_in"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "*",
+          "type": "*",
+          "links": [
+            113,
+            115
+          ],
+          "slot_index": 0
+        },
+        {
+          "name": "*",
+          "type": "*",
+          "links": null
+        },
+        {
+          "name": "*",
+          "type": "*",
+          "links": null
+        },
+        {
+          "name": "*",
+          "type": "*",
+          "links": null
+        },
+        {
+          "name": "*",
+          "type": "*",
+          "links": null
+        },
+        {
+          "name": "*",
+          "type": "*",
+          "links": null
+        }
+      ],
+      "title": "upscale switch",
+      "properties": {
+        "Node name for S&R": "UniversalSwitch"
+      },
+      "widgets_values": [
+        "SWITCH",
+        1,
+        1,
+        false
+      ]
+    },
+    {
+      "id": 56,
+      "type": "UniversalSwitch",
+      "pos": [
+        2100,
+        -110
+      ],
+      "size": [
+        210,
+        226.72984313964844
+      ],
+      "flags": {},
+      "order": 14,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "input1",
+          "type": "*",
+          "link": 113
+        },
+        {
+          "name": "input2",
+          "type": "*",
+          "link": 114,
+          "shape": 7
+        },
+        {
+          "name": "input3",
+          "type": "*",
+          "link": null,
+          "shape": 7
+        },
+        {
+          "name": "input4",
+          "type": "*",
+          "link": null,
+          "shape": 7
+        },
+        {
+          "name": "input5",
+          "type": "*",
+          "link": null,
+          "shape": 7
+        },
+        {
+          "name": "input6",
+          "type": "*",
+          "link": null,
+          "shape": 7
+        },
+        {
+          "name": "selection_in",
+          "type": "INT",
+          "link": 111,
+          "widget": {
+            "name": "selection_in"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "*",
+          "type": "*",
+          "links": [
+            116
+          ],
+          "slot_index": 0
+        },
+        {
+          "name": "*",
+          "type": "*",
+          "links": null
+        },
+        {
+          "name": "*",
+          "type": "*",
+          "links": null
+        },
+        {
+          "name": "*",
+          "type": "*",
+          "links": null
+        },
+        {
+          "name": "*",
+          "type": "*",
+          "links": null
+        },
+        {
+          "name": "*",
+          "type": "*",
+          "links": null
+        }
+      ],
+      "title": "frame interpolation switch",
+      "properties": {
+        "Node name for S&R": "UniversalSwitch"
+      },
+      "widgets_values": [
+        "SWITCH",
+        1,
+        1,
+        false
+      ]
+    },
+    {
+      "id": 57,
+      "type": "DataMonitor",
+      "pos": [
+        2110,
+        170
+      ],
+      "size": [
+        210,
+        262.1600646972656
+      ],
+      "flags": {
+        "collapsed": true
+      },
+      "order": 8,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "passthrough",
+          "type": "*",
+          "link": null,
+          "shape": 7
+        },
+        {
+          "name": "aux",
+          "type": "*",
+          "link": 112,
+          "shape": 7
+        },
+        {
+          "name": "aux2",
+          "type": "*",
+          "link": null,
+          "shape": 7
+        },
+        {
+          "name": "aux3",
+          "type": "*",
+          "link": null,
+          "shape": 7
+        },
+        {
+          "name": "aux4",
+          "type": "*",
+          "link": null,
+          "shape": 7
+        },
+        {
+          "name": "aux5",
+          "type": "*",
+          "link": null,
+          "shape": 7
+        }
+      ],
+      "outputs": [
+        {
+          "name": "output",
+          "type": "*",
+          "links": [
+            111
+          ],
+          "slot_index": 0
+        }
+      ],
+      "title": "parse bool frame interpolation",
+      "properties": {
+        "Node name for S&R": "DataMonitor"
+      },
+      "widgets_values": [
+        "[1,2][%aux%]",
+        "FORMULA"
+      ]
+    }
+  ],
+  "links": [
+    [
+      35,
+      3,
+      0,
+      8,
+      0,
+      "LATENT"
+    ],
+    [
+      38,
+      21,
+      0,
+      3,
+      3,
+      "LATENT"
+    ],
+    [
+      46,
+      6,
+      0,
+      3,
+      1,
+      "CONDITIONING"
+    ],
+    [
+      52,
+      7,
+      0,
+      3,
+      2,
+      "CONDITIONING"
+    ],
+    [
+      81,
+      40,
+      0,
+      3,
+      0,
+      "MODEL"
+    ],
+    [
+      92,
+      40,
+      1,
+      6,
+      0,
+      "CLIP"
+    ],
+    [
+      93,
+      40,
+      2,
+      8,
+      1,
+      "VAE"
+    ],
+    [
+      94,
+      40,
+      1,
+      7,
+      0,
+      "CLIP"
+    ],
+    [
+      95,
+      46,
+      0,
+      45,
+      0,
+      "UPSCALE_MODEL"
+    ],
+    [
+      96,
+      8,
+      0,
+      45,
+      1,
+      "IMAGE"
+    ],
+    [
+      105,
+      55,
+      0,
+      54,
+      6,
+      "INT"
+    ],
+    [
+      106,
+      50,
+      0,
+      55,
+      1,
+      "*"
+    ],
+    [
+      107,
+      8,
+      0,
+      54,
+      0,
+      "*"
+    ],
+    [
+      108,
+      45,
+      0,
+      54,
+      1,
+      "*"
+    ],
+    [
+      111,
+      57,
+      0,
+      56,
+      6,
+      "INT"
+    ],
+    [
+      112,
+      50,
+      0,
+      57,
+      1,
+      "*"
+    ],
+    [
+      113,
+      54,
+      0,
+      56,
+      0,
+      "*"
+    ],
+    [
+      114,
+      47,
+      0,
+      56,
+      1,
+      "*"
+    ],
+    [
+      115,
+      54,
+      0,
+      47,
+      0,
+      "IMAGE"
+    ],
+    [
+      116,
+      56,
+      0,
+      42,
+      0,
+      "IMAGE"
+    ]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {
+    "ds": {
+      "scale": 0.5730855330117238,
+      "offset": [
+        858.8050638837497,
+        759.3041498328042
+      ]
+    },
+    "node_versions": {
+      "comfy-core": "0.3.13",
+      "eden_comfy_pipelines": "35af96dba9df83a53013a48cda08a9556a1c8fef",
+      "comfyui-videohelpersuite": "1.5.0",
+      "comfyui-frame-interpolation": "1.0.6",
+      "ControlFlowUtils": "b675bc6c2c6847d53d8a010fed1497a1b565c144"
+    },
+    "VHS_latentpreview": true,
+    "VHS_latentpreviewrate": 0
+  },
+  "version": 0.4
+}

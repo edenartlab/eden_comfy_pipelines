@@ -1,0 +1,691 @@
+{
+  "last_node_id": 59,
+  "last_link_id": 118,
+  "nodes": [
+    {
+      "id": 2,
+      "type": "HMFaceToolkitsLoader",
+      "pos": [
+        43,
+        699
+      ],
+      "size": [
+        315,
+        82
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "face_toolkits",
+          "type": "FACE_TOOLKITS",
+          "links": [
+            57,
+            62,
+            65,
+            97,
+            114
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "HMFaceToolkitsLoader"
+      },
+      "widgets_values": [
+        0,
+        "huggingface"
+      ]
+    },
+    {
+      "id": 39,
+      "type": "CropPortrait",
+      "pos": [
+        516,
+        537
+      ],
+      "size": [
+        241.79998779296875,
+        46
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 116
+        },
+        {
+          "name": "face_toolkits",
+          "type": "FACE_TOOLKITS",
+          "link": 57
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            99
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "CropPortrait"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 43,
+      "type": "GetFaceLandmarks",
+      "pos": [
+        465,
+        771
+      ],
+      "size": [
+        292.20001220703125,
+        46
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "face_toolkits",
+          "type": "FACE_TOOLKITS",
+          "link": 62
+        },
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 82
+        }
+      ],
+      "outputs": [
+        {
+          "name": "landmarks",
+          "type": "FACELANDMARKS222",
+          "links": [
+            64,
+            113
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "GetFaceLandmarks"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 44,
+      "type": "GetDrivePose",
+      "pos": [
+        842,
+        677
+      ],
+      "size": [
+        304.79998779296875,
+        66
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "face_toolkits",
+          "type": "FACE_TOOLKITS",
+          "link": 65
+        },
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 83
+        },
+        {
+          "name": "landmarks",
+          "type": "FACELANDMARKS222",
+          "link": 64
+        }
+      ],
+      "outputs": [
+        {
+          "name": "drive_pose",
+          "type": "DRIVE_POSE",
+          "links": [
+            100
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "GetDrivePose"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 53,
+      "type": "HMPipelineVideo",
+      "pos": [
+        1258,
+        562
+      ],
+      "size": [
+        315,
+        350
+      ],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "hm_video_pipeline",
+          "type": "HMVIDEOPIPELINE",
+          "link": 115
+        },
+        {
+          "name": "face_toolkits",
+          "type": "FACE_TOOLKITS",
+          "link": 97
+        },
+        {
+          "name": "ref_image",
+          "type": "IMAGE",
+          "link": 99
+        },
+        {
+          "name": "drive_pose",
+          "type": "DRIVE_POSE",
+          "link": 100
+        },
+        {
+          "name": "drive_exp",
+          "type": "DRIVE_EXPRESSION",
+          "link": null,
+          "shape": 7
+        },
+        {
+          "name": "drive_exp2",
+          "type": "DRIVE_EXPRESSION2",
+          "link": 111,
+          "shape": 7
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            117
+          ],
+          "slot_index": 0
+        },
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "HMPipelineVideo"
+      },
+      "widgets_values": [
+        0,
+        4,
+        "(best quality), highly detailed, ultra-detailed, headshot, person, well-placed five sense organs, looking at the viewer, centered composition, sharp focus, realistic skin texture",
+        "",
+        25,
+        803448379700888,
+        "randomize",
+        2,
+        0
+      ]
+    },
+    {
+      "id": 56,
+      "type": "GetDriveExpression2",
+      "pos": [
+        844,
+        816
+      ],
+      "size": [
+        304.79998779296875,
+        66
+      ],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "face_toolkits",
+          "type": "FACE_TOOLKITS",
+          "link": 114
+        },
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 112
+        },
+        {
+          "name": "landmarks",
+          "type": "FACELANDMARKS222",
+          "link": 113
+        }
+      ],
+      "outputs": [
+        {
+          "name": "drive_exp2",
+          "type": "DRIVE_EXPRESSION2",
+          "links": [
+            111
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "GetDriveExpression2"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 57,
+      "type": "HMVideoPipelineLoader",
+      "pos": [
+        813,
+        343
+      ],
+      "size": [
+        352.79998779296875,
+        178
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "hm_video_pipeline",
+          "type": "HMVIDEOPIPELINE",
+          "links": [
+            115
+          ],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "HMVideoPipelineLoader"
+      },
+      "widgets_values": [
+        "SD1.5",
+        "None",
+        "same as checkpoint",
+        "v2",
+        "x1",
+        "huggingface"
+      ]
+    },
+    {
+      "id": 59,
+      "type": "VHS_VideoCombine",
+      "pos": [
+        1619,
+        800
+      ],
+      "size": [
+        214.7587890625,
+        542.7587890625
+      ],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 117
+        },
+        {
+          "name": "audio",
+          "type": "AUDIO",
+          "link": 118,
+          "shape": 7
+        },
+        {
+          "name": "meta_batch",
+          "type": "VHS_BatchManager",
+          "link": null,
+          "shape": 7
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": null,
+          "shape": 7
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Filenames",
+          "type": "VHS_FILENAMES",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "VHS_VideoCombine"
+      },
+      "widgets_values": {
+        "frame_rate": 15,
+        "loop_count": 0,
+        "filename_prefix": "AnimateDiff",
+        "format": "video/h264-mp4",
+        "pix_fmt": "yuv420p",
+        "crf": 18,
+        "save_metadata": true,
+        "trim_to_audio": false,
+        "pingpong": false,
+        "save_output": true,
+        "videopreview": {
+          "hidden": false,
+          "paused": false,
+          "params": {
+            "filename": "AnimateDiff_00003-audio.mp4",
+            "subfolder": "",
+            "type": "output",
+            "format": "video/h264-mp4",
+            "frame_rate": 15,
+            "workflow": "AnimateDiff_00003.png",
+            "fullpath": "C:\\Comfy\\ComfyUI\\output\\AnimateDiff_00003-audio.mp4"
+          },
+          "muted": false
+        }
+      }
+    },
+    {
+      "id": 48,
+      "type": "VHS_LoadVideo",
+      "pos": [
+        106,
+        867
+      ],
+      "size": [
+        247.455078125,
+        551.455078125
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "meta_batch",
+          "type": "VHS_BatchManager",
+          "link": null,
+          "shape": 7
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": null,
+          "shape": 7
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            82,
+            83,
+            112
+          ],
+          "slot_index": 0
+        },
+        {
+          "name": "frame_count",
+          "type": "INT",
+          "links": null
+        },
+        {
+          "name": "audio",
+          "type": "AUDIO",
+          "links": [
+            118
+          ],
+          "slot_index": 2
+        },
+        {
+          "name": "video_info",
+          "type": "VHS_VIDEOINFO",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "VHS_LoadVideo"
+      },
+      "widgets_values": {
+        "video": "d6_1_short.mp4",
+        "force_rate": 15,
+        "custom_width": 0,
+        "custom_height": 0,
+        "frame_load_cap": 0,
+        "skip_first_frames": 0,
+        "select_every_nth": 1,
+        "format": "AnimateDiff",
+        "choose video to upload": "image",
+        "videopreview": {
+          "hidden": false,
+          "paused": false,
+          "params": {
+            "force_rate": 15,
+            "frame_load_cap": 0,
+            "skip_first_frames": 0,
+            "select_every_nth": 1,
+            "filename": "d6_1_short.mp4",
+            "type": "input",
+            "format": "video/mp4"
+          },
+          "muted": false
+        }
+      }
+    },
+    {
+      "id": 58,
+      "type": "LoadImage",
+      "pos": [
+        42.38749313354492,
+        273
+      ],
+      "size": [
+        315,
+        314
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            116
+          ],
+          "slot_index": 0
+        },
+        {
+          "name": "MASK",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LoadImage"
+      },
+      "widgets_values": [
+        "eve-looking-back.png",
+        "image"
+      ]
+    }
+  ],
+  "links": [
+    [
+      57,
+      2,
+      0,
+      39,
+      1,
+      "FACE_TOOLKITS"
+    ],
+    [
+      62,
+      2,
+      0,
+      43,
+      0,
+      "FACE_TOOLKITS"
+    ],
+    [
+      64,
+      43,
+      0,
+      44,
+      2,
+      "FACELANDMARKS222"
+    ],
+    [
+      65,
+      2,
+      0,
+      44,
+      0,
+      "FACE_TOOLKITS"
+    ],
+    [
+      82,
+      48,
+      0,
+      43,
+      1,
+      "IMAGE"
+    ],
+    [
+      83,
+      48,
+      0,
+      44,
+      1,
+      "IMAGE"
+    ],
+    [
+      97,
+      2,
+      0,
+      53,
+      1,
+      "FACE_TOOLKITS"
+    ],
+    [
+      99,
+      39,
+      0,
+      53,
+      2,
+      "IMAGE"
+    ],
+    [
+      100,
+      44,
+      0,
+      53,
+      3,
+      "DRIVE_POSE"
+    ],
+    [
+      111,
+      56,
+      0,
+      53,
+      5,
+      "DRIVE_EXPRESSION2"
+    ],
+    [
+      112,
+      48,
+      0,
+      56,
+      1,
+      "IMAGE"
+    ],
+    [
+      113,
+      43,
+      0,
+      56,
+      2,
+      "FACELANDMARKS222"
+    ],
+    [
+      114,
+      2,
+      0,
+      56,
+      0,
+      "FACE_TOOLKITS"
+    ],
+    [
+      115,
+      57,
+      0,
+      53,
+      0,
+      "HMVIDEOPIPELINE"
+    ],
+    [
+      116,
+      58,
+      0,
+      39,
+      0,
+      "IMAGE"
+    ],
+    [
+      117,
+      53,
+      0,
+      59,
+      0,
+      "IMAGE"
+    ],
+    [
+      118,
+      48,
+      2,
+      59,
+      1,
+      "AUDIO"
+    ]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {
+    "ds": {
+      "scale": 0.8264462809917354,
+      "offset": [
+        588.8217835430144,
+        -135.8614279707282
+      ]
+    },
+    "node_versions": {
+      "comfyui_hellomeme": "1.0.2",
+      "comfyui-videohelpersuite": "1.5.0",
+      "comfy-core": "0.3.13"
+    },
+    "VHS_latentpreview": true,
+    "VHS_latentpreviewrate": 0
+  },
+  "version": 0.4
+}
