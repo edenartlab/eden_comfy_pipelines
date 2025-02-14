@@ -5,25 +5,6 @@ https://github.com/theUpsider/ComfyUI-Logic/tree/fb8897351f715ea75eebf52e74515b6
 
 """
 
-
-COMPARE_FUNCTIONS = {
-    "a == b": lambda a, b: a == b,
-    "a != b": lambda a, b: a != b,
-    "a < b": lambda a, b: a < b,
-    "a > b": lambda a, b: a > b,
-    "a <= b": lambda a, b: a <= b,
-    "a >= b": lambda a, b: a >= b,
-}
-
-
-class AlwaysEqualProxy(str):
-    def __eq__(self, _):
-        return True
-
-    def __ne__(self, _):
-        return False
-
-
 class Eden_String:
     @classmethod
     def INPUT_TYPES(s):
@@ -88,43 +69,73 @@ class Eden_Bool:
         return (value,)
 
 
-class Eden_Compare:
-    """
-    This nodes compares the two inputs and outputs the result of the comparison.
-    """
+COMPARE_FUNCTIONS = {
+    "a == b": lambda a, b: a == b,
+    "a != b": lambda a, b: a != b,
+    "a < b": lambda a, b: a < b,
+    "a > b": lambda a, b: a > b,
+    "a <= b": lambda a, b: a <= b,
+    "a >= b": lambda a, b: a >= b,
+}
 
+class AlwaysEqualProxy(str):
+    def __eq__(self, _):
+        return True
+
+    def __ne__(self, _):
+        return False
+
+
+class Eden_Compare:
     @classmethod
     def INPUT_TYPES(s):
-        """
-        Comparison node takes two inputs, a and b, and compares them.
-        """
-        s.compare_functions = list(COMPARE_FUNCTIONS.keys())
+        compare_functions = list(COMPARE_FUNCTIONS.keys())
         return {
             "required": {
                 "a": (AlwaysEqualProxy("*"), {"default": 0}),
                 "b": (AlwaysEqualProxy("*"), {"default": 0}),
-                "comparison": (s.compare_functions, {"default": "a == b"}),
+                "comparison": (compare_functions, {"default": "a == b"}),
             },
         }
 
     RETURN_TYPES = ("BOOLEAN",)
-    RETURN_NAMES = "BOOLEAN"
+    RETURN_NAMES = ("boolean",)
     FUNCTION = "compare"
     CATEGORY = "Eden 🌱/Logic"
 
     def compare(self, a, b, comparison):
-        """
-        Compare two inputs and return the result of the comparison.
-
-        Args:
-            a (UNKNOWN): The first input.
-            b (UNKNOWN): The second input.
-            comparison (STRING): The comparison to perform. Can be one of "==", "!=", "<", ">", "<=", ">=".
-
-        Returns:
-            : The result of the comparison.
-        """
         return (COMPARE_FUNCTIONS[comparison](a, b),)
+
+
+from typing import Any, Callable, Mapping
+BOOL_BINARY_OPERATIONS: Mapping[str, Callable[[bool, bool], bool]] = {
+    "Nor": lambda a, b: not (a or b),
+    "Xor": lambda a, b: a ^ b,
+    "Nand": lambda a, b: not (a and b),
+    "And": lambda a, b: a and b,
+    "Xnor": lambda a, b: not (a ^ b),
+    "Or": lambda a, b: a or b,
+    "Eq": lambda a, b: a == b,
+    "Neq": lambda a, b: a != b,
+}
+
+class Eden_BoolBinaryOperation:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "op": (list(BOOL_BINARY_OPERATIONS.keys()),),
+                "a": ("BOOLEAN", {"default": False}),
+                "b": ("BOOLEAN", {"default": False}),
+            }
+        }
+
+    RETURN_TYPES = ("BOOLEAN",)
+    FUNCTION = "op"
+    CATEGORY = "Eden 🌱/Logic"
+
+    def op(self, op: str, a: bool, b: bool) -> tuple[bool]:
+        return (BOOL_BINARY_OPERATIONS[op](a, b),)
 
 
 class Eden_IfExecute:
@@ -144,10 +155,10 @@ class Eden_IfExecute:
         }
 
     RETURN_TYPES = (AlwaysEqualProxy("*"),)
-    RETURN_NAMES = "?"
+    RETURN_NAMES = ("?",)
     FUNCTION = "return_based_on_bool"
     CATEGORY = "Eden 🌱/Logic"
-
+    
     def return_based_on_bool(self, ANY, IF_TRUE, IF_FALSE):
         result_str = "True" if ANY else "False"
         print(f"Evaluating {type(ANY)}, *** {ANY} *** as {result_str}")

@@ -9,9 +9,10 @@ from img_utils.gpt_nodes import *
 from img_utils.hist_matcher import HistogramMatching
 from logic.logic_nodes import *
 from img_utils.animation import Animation_RGB_Mask
-from eden_utils.lora_utils import Eden_Lora_Loader
+from video_utils.gradient_mask_video import KeyframeBlender
 from ip_adapter_utils.moodmix_utils import *
 from video_utils.video_interpolation import VideoFrameSelector
+from general_utils import *
 
 NODE_CLASS_MAPPINGS = {
     "CLIP_Interrogator": CLIP_Interrogator,
@@ -29,18 +30,18 @@ NODE_CLASS_MAPPINGS = {
     "Eden_Int": Eden_Int,
     "Eden_Float": Eden_Float,
     "Eden_Bool": Eden_Bool,
+    "Eden_BoolBinaryOperation": Eden_BoolBinaryOperation,
     "Eden_String": Eden_String,
     "If ANY execute A else B": Eden_IfExecute,
     "Eden_DebugPrint": Eden_DebugPrint,
-    "MaskFromRGB": MaskFromRGB,
     "MaskFromRGB_KMeans": MaskFromRGB_KMeans,
     "GetRandomFile": GetRandomFile,
     "Animation_RGB_Mask": Animation_RGB_Mask,
     "ImageDescriptionNode": ImageDescriptionNode,
     "Eden_gpt4_node": Eden_gpt4_node,
+    "Eden_GPTPromptEnhancer": Eden_GPTPromptEnhancer,
     "FolderScanner": FolderScanner,
     "SavePosEmbeds": SavePosEmbeds,
-    "Eden_Lora_Loader": Eden_Lora_Loader,
     "VideoFrameSelector": VideoFrameSelector,
     "LoadImagesByFilename": LoadImagesByFilename,
     "Random_Style_Mixture": Random_Style_Mixture,
@@ -51,6 +52,34 @@ NODE_CLASS_MAPPINGS = {
     "WidthHeightPicker": WidthHeightPicker,
     "DepthSlicer": DepthSlicer,
     "ParallaxZoom": ParallaxZoom,
-    "AspectPadImageForOutpainting": AspectPadImageForOutpainting
+    "AspectPadImageForOutpainting": AspectPadImageForOutpainting,
+    "Eden_MaskBoundingBox": Eden_MaskBoundingBox,
+    "Eden_Seed": Eden_Seed,
+    "Eden_RepeatLatentBatch": Eden_RepeatLatentBatch,
+    "Extend_Sequence": Extend_Sequence,
+    "Eden_DetermineFrameCount": Eden_DetermineFrameCount,
+    "Eden_Math": Eden_Math,
+    "Eden_IntToFloat": Eden_IntToFloat,
+    "Eden_FloatToInt": Eden_FloatToInt,
+    "Eden_Image_Math": Eden_Image_Math,
+    "IP_Adapter_Settings_Distribution": IP_Adapter_Settings_Distribution,
+    "Eden_StringHash": Eden_StringHash,
+    "ImageFolderIterator": ImageFolderIterator,
+    "Eden_MaskCombiner": Eden_MaskCombiner,
+    "Eden_DepthSlice_MaskVideo": Eden_DepthSlice_MaskVideo,
+    "KeyframeBlender": KeyframeBlender,
+    "Eden_RandomPromptFromFile": Eden_RandomPromptFromFile,
+    "Eden_StringReplace": Eden_StringReplace
 }
 
+try:
+    from random_conditioning.random_c_utils import *
+    # add keys:
+    NODE_CLASS_MAPPINGS_ADD = {
+        "SaveConditioning": SaveConditioning,
+        "LoadConditioning": LoadConditioning,
+        "Eden_RandomConditioningSamplerNode": Eden_RandomConditioningSamplerNode
+    }
+    NODE_CLASS_MAPPINGS.update(NODE_CLASS_MAPPINGS_ADD)
+except:
+    pass

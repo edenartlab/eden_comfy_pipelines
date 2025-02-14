@@ -24,6 +24,89 @@ def print_available_memory():
     memory = psutil.virtual_memory()
     print(f"Available memory: {memory.available / 1024 / 1024 / 1024:.2f} GB")
 
+import torchvision.transforms.functional as T
+import comfy.utils
+
+class Eden_MaskBoundingBox:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "mask": ("MASK",),
+                "padding": ("INT", { "default": 0, "min": 0, "max": 4096, "step": 1, }),
+                "blur": ("INT", { "default": 0, "min": 0, "max": 256, "step": 1, }),
+                "noise_threshold": ("INT", { "default": 1, "min": 0, "max": 1000, "step": 1, }),
+            },
+            "optional": {
+                "image_optional": ("IMAGE",),
+            }
+        }
+    RETURN_TYPES = ("MASK", "IMAGE", "INT", "INT", "INT", "INT")
+    RETURN_NAMES = ("MASK", "IMAGE", "x", "y", "width", "height")
+    FUNCTION = "execute"
+    CATEGORY = "Eden/mask"
+
+    def execute(self, mask, padding, blur, noise_threshold, image_optional=None):
+        if mask.dim() == 2:
+            mask = mask.unsqueeze(0)
+        if image_optional is None:
+            image_optional = mask.unsqueeze(3).repeat(1, 1, 1, 3)
+        # resize the image if it's not the same size as the mask
+        if image_optional.shape[1:] != mask.shape[1:]:
+            image_optional = comfy.utils.common_upscale(image_optional.permute([0,3,1,2]), mask.shape[2], mask.shape[1], upscale_method='bicubic', crop='center').permute([0,2,3,1])
+        # match batch size
+        if image_optional.shape[0] < mask.shape[0]:
+            image_optional = torch.cat((image_optional, image_optional[-1].unsqueeze(0).repeat(mask.shape[0]-image_optional.shape[0], 1, 1, 1)), dim=0)
+        elif image_optional.shape[0] > mask.shape[0]:
+            image_optional = image_optional[:mask.shape[0]]
+        
+        # Apply noise reduction
+        kernel_size = 3
+        mask = self.reduce_noise(mask, kernel_size, noise_threshold)
+
+        # blur the mask
+        if blur > 0:
+            if blur % 2 == 0:
+                blur += 1
+            mask = T.gaussian_blur(mask.unsqueeze(1), blur).squeeze(1)
+        
+        # Find bounding box
+        y_indices, x_indices = torch.where(mask[0] > 0)
+        if len(y_indices) > 0 and len(x_indices) > 0:
+            x1 = max(0, x_indices.min().item() - padding)
+            x2 = min(mask.shape[2], x_indices.max().item() + 1 + padding)
+            y1 = max(0, y_indices.min().item() - padding)
+            y2 = min(mask.shape[1], y_indices.max().item() + 1 + padding)
+        else:
+            # If no non-zero pixels found, return the entire mask
+            x1, y1, x2, y2 = 0, 0, mask.shape[2], mask.shape[1]
+
+        # crop the mask and debug_mask
+        mask = mask[:, y1:y2, x1:x2]
+        image_optional = image_optional[:, y1:y2, x1:x2, :]
+
+        return (mask, image_optional, x1, y1, x2 - x1, y2 - y1)
+
+    @staticmethod
+    def reduce_noise(mask, kernel_size, threshold):
+        # Create a max pooling layer
+        max_pool = torch.nn.MaxPool2d(kernel_size, stride=1, padding=kernel_size//2)
+        
+        # Apply max pooling
+        pooled = max_pool(mask)
+        
+        # Count non-zero neighbors
+        neighbor_count = torch.nn.functional.conv2d(
+            mask.float(), 
+            torch.ones(1, 1, kernel_size, kernel_size).to(mask.device),
+            padding=kernel_size//2
+        )
+        
+        # Keep only pixels with enough non-zero neighbors
+        mask = torch.where(neighbor_count >= threshold, pooled, torch.zeros_like(pooled))
+        
+        return mask
+
 
 class WidthHeightPicker:
     @classmethod
@@ -211,71 +294,13 @@ def gaussian_kernel_2d(sigma, size=0):
     kernel = kernel / kernel.sum()
     return kernel.view(1, 1, -1, 1) * kernel.view(1, 1, 1, -1)
 
-class MaskFromRGB:
-    @classmethod
-    def INPUT_TYPES(s):
-        return {
-            "required": {
-                "image": ("IMAGE", ),
-                "threshold_r": ("FLOAT", { "default": 0.15, "min": 0.0, "max": 1, "step": 0.01, }),
-                "threshold_g": ("FLOAT", { "default": 0.15, "min": 0.0, "max": 1, "step": 0.01, }),
-                "threshold_b": ("FLOAT", { "default": 0.15, "min": 0.0, "max": 1, "step": 0.01, }),
-                "feathering": ("FLOAT", { "default": 0.0, "min": 0.0, "max": 500.0, "step": 0.1 }),
-            }
-        }
-
-    RETURN_TYPES = ("MASK","MASK","MASK","MASK","MASK","MASK","MASK","MASK",)
-    RETURN_NAMES = ("red","green","blue","cyan","magenta","yellow","black","white",)
-    FUNCTION = "execute"
-    CATEGORY = "Eden 🌱"
-
-    @torch.no_grad()
-    def execute(self, image, threshold_r, threshold_g, threshold_b, feathering):
-
-        # Thresholding
-        red = (image[..., 0] >= 1 - threshold_r) & (image[..., 1] < threshold_g) & (image[..., 2] < threshold_b)
-        green = (image[..., 0] < threshold_r) & (image[..., 1] >= 1 - threshold_g) & (image[..., 2] < threshold_b)
-        blue = (image[..., 0] < threshold_r) & (image[..., 1] < threshold_g) & (image[..., 2] >= 1 - threshold_b)
-
-        cyan = (image[..., 0] < threshold_r) & (image[..., 1] >= 1 - threshold_g) & (image[..., 2] >= 1 - threshold_b)
-        magenta = (image[..., 0] >= 1 - threshold_r) & (image[..., 1] < threshold_g) & (image[..., 2] > 1 - threshold_b)
-        yellow = (image[..., 0] >= 1 - threshold_r) & (image[..., 1] >= 1 - threshold_g) & (image[..., 2] < threshold_b)
-
-        black = (image[..., 0] <= threshold_r) & (image[..., 1] <= threshold_g) & (image[..., 2] <= threshold_b)
-        white = (image[..., 0] >= 1 - threshold_r) & (image[..., 1] >= 1 - threshold_g) & (image[..., 2] >= 1 - threshold_b)
-
-        # Combine masks
-        masks = torch.stack([red, green, blue, cyan, magenta, yellow, black, white], dim=1).float()
-
-        if feathering > 0:
-            masks = masks.to("cuda")
-            n_imgs, n_colors, h, w = masks.shape
-            batch_size = n_imgs * n_colors
-            masks = masks.view(batch_size, h, w)
-
-            kernel = gaussian_kernel_2d(feathering).to(masks.device)
-
-            print("Feathering masks...")
-            # Apply convolution for feathering
-            masks_feathered = torch.zeros_like(masks)
-            for i in range(masks.shape[0]):
-                mask_padded = masks[i]
-                mask_padded = mask_padded.unsqueeze(0).unsqueeze(0)  # Add batch dimension
-                mask_feathered = F.conv2d(mask_padded, kernel, padding='same')
-                masks_feathered[i] = mask_feathered.squeeze()
-            
-            masks = masks_feathered.view(n_imgs, n_colors, h, w).to("cpu")
-            gc.collect()
-            torch.cuda.empty_cache()
-
-        # convert masks to float16 to save memory:
-        masks = masks.half()
-
-        return masks[:, 0], masks[:, 1], masks[:, 2], masks[:, 3], masks[:, 4], masks[:, 5], masks[:, 6], masks[:, 7]
-
 from sklearn.cluster import KMeans
 from .img_utils import lab_to_rgb, rgb_to_lab
 import numpy as np
+from PIL.PngImagePlugin import PngInfo
+import json
+import torch
+import torch.nn.functional as F
 
 class MaskFromRGB_KMeans:
     @classmethod
@@ -332,7 +357,7 @@ class MaskFromRGB_KMeans:
         cluster_labels = torch.from_numpy(sorted_cluster_labels).to("cpu").view(n, h, w)
 
         # Transform the cluster_labels into masks:
-        masks = torch.zeros(n, 8, h, w)
+        masks = torch.zeros(n, 8, h, w, device=image.device)
 
         for i in range(n):
             for j in range(n_color_clusters):
@@ -348,6 +373,9 @@ class MaskFromRGB_KMeans:
             feathering = feathering // 2 * 2
 
             kernel = gaussian_kernel_2d(feathering).to(masks.device)
+            
+            # Calculate padding size
+            pad_size = kernel.shape[2] // 2
 
             print("Feathering masks...")
             # Apply convolution for feathering
@@ -355,20 +383,149 @@ class MaskFromRGB_KMeans:
             for i in range(masks.shape[0]):
                 mask_padded = masks[i]
                 mask_padded = mask_padded.unsqueeze(0).unsqueeze(0)  # Add batch dimension
-                mask_feathered = F.conv2d(mask_padded, kernel, padding='same')
+                
+                # Apply reflection padding
+                mask_padded = F.pad(mask_padded, (pad_size, pad_size, pad_size, pad_size), mode='reflect')
+                
+                # Apply convolution
+                mask_feathered = F.conv2d(mask_padded, kernel, padding=0)
+                
+                # Ensure the output size matches the input size exactly
+                mask_feathered = F.interpolate(mask_feathered, size=(h, w), mode='bilinear', align_corners=False)
+                
                 masks_feathered[i] = mask_feathered.squeeze()
             
             masks = masks_feathered.view(n_imgs, n_colors, h, w).to("cpu")
 
         # Upscale masks to original resolution:
-        masks = F.interpolate(masks, size=(image.shape[1], image.shape[2]), mode='bicubic', align_corners=False)
+        masks = F.interpolate(masks, size=(image.shape[1], image.shape[2]), mode='bicubic', align_corners=False).to("cpu")
 
         return masks[:, 0], masks[:, 1], masks[:, 2], masks[:, 3], masks[:, 4], masks[:, 5], masks[:, 6], masks[:, 7]
 
+class Eden_MaskCombiner:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "mask_a": ("MASK",),
+                "rel_strength_a": ("FLOAT", {"default": 0.5, "min": -1.0, "max": 1.0, "step": 0.01}),
+                "rel_strength_b": ("FLOAT", {"default": 0.0, "min": -1.0, "max": 1.0, "step": 0.01}),
+                "rel_strength_c": ("FLOAT", {"default": 0.0, "min": -1.0, "max": 1.0, "step": 0.01}),
+                "lower_clamp": ("FLOAT", {"default": 2.0, "min": 0.0, "max": 50.0, "step": 0.5}),
+                "upper_clamp": ("FLOAT", {"default": 98.0, "min": 50.0, "max": 100.0, "step": 0.5}),
+                "gamma": ("FLOAT", {"default": 0.7, "min": 0.1, "max": 2.0, "step": 0.05})
+            },
+            "optional": {
+                "mask_b": ("MASK", {"default": None}),
+                "mask_c": ("MASK", {"default": None})
+            }
+        }
+    
+    RETURN_TYPES = ("MASK",)
+    FUNCTION = "combine_masks"
+    CATEGORY = "Eden 🌱"
 
+    def soft_clamp(self, x, min_val, max_val, smoothness=0.1):
+        """Apply soft clamping using sigmoid function in PyTorch"""
+        range_val = max_val - min_val
+        normalized = (x - min_val) / range_val
+        return torch.sigmoid((normalized - 0.5) / smoothness)
 
-from PIL.PngImagePlugin import PngInfo
-import json
+    def adaptive_histogram_eq(self, img, num_bins=256):
+        """Apply adaptive histogram equalization using PyTorch"""
+        # Ensure input is in correct range
+        img = torch.clamp(img, 0, 1)
+        
+        # Calculate histogram
+        hist = torch.histc(img, bins=num_bins, min=0, max=1)
+        
+        # Calculate CDF
+        cdf = torch.cumsum(hist, dim=0)
+        cdf_normalized = cdf * hist.min() / cdf.max()
+        
+        # Create bin centers
+        bin_centers = torch.linspace(0, 1, num_bins, device=img.device)
+        
+        # Interpolate values
+        img_flat = img.reshape(-1)
+        indices = torch.bucketize(img_flat, bin_centers)
+        indices = torch.clamp(indices, 0, num_bins - 1)
+        
+        return cdf_normalized[indices].reshape(img.shape)
+
+    def compute_quantile(self, tensor, q, max_elements = 10000):
+        """Compute quantile for large tensors by sampling"""
+        # If tensor is too large, sample it
+        if tensor.numel() > max_elements:
+            indices = torch.randperm(tensor.numel(), device=tensor.device)[:max_elements]
+            tensor_sample = tensor.view(-1)[indices]
+            return torch.quantile(tensor_sample, q)
+        else:
+            return torch.quantile(tensor, q)
+
+    @torch.no_grad()
+    def combine_masks(self, mask_a, rel_strength_a, lower_clamp, upper_clamp, gamma,
+                     mask_b=None, mask_c=None, rel_strength_b=None, rel_strength_c=None):
+        """
+        ComfyUI node function to combine multiple masks with improved signal preservation.
+        All operations are performed in PyTorch.
+        """
+        device = mask_a.device
+
+        # Apply gamma correction
+        mask_a = torch.pow(mask_a, gamma)
+        masks = [mask_a]
+        weights = [rel_strength_a]
+        
+        # Process optional masks
+        if mask_b is not None and rel_strength_b != 0:
+            mask_b = torch.pow(mask_b, gamma)
+            masks.append(mask_b)
+            weights.append(rel_strength_b)
+            
+        if mask_c is not None and rel_strength_c != 0:
+            mask_c = torch.pow(mask_c, gamma)
+            masks.append(mask_c)
+            weights.append(rel_strength_c)
+        
+        # Process masks with strength values
+        processed_masks = []
+        processed_weights = []
+        
+        for mask, strength in zip(masks, weights):
+            if strength != 0:
+                if strength < 0:
+                    processed_masks.append(1 - mask)
+                    processed_weights.append(abs(strength))
+                else:
+                    processed_masks.append(mask)
+                    processed_weights.append(strength)
+        
+        # If no valid masks, return mid-gray
+        if not processed_masks:
+            return (torch.full_like(mask_a, 0.5),)
+        
+        # Normalize weights using softmax
+        weights_tensor = torch.tensor(processed_weights, device=device)
+        weights_tensor = F.softmax(weights_tensor, dim=0)
+        
+        # Combine masks
+        combined = torch.zeros_like(mask_a)
+        for mask, weight in zip(processed_masks, weights_tensor):
+            combined += mask * weight
+
+        # Apply adaptive histogram equalization
+        #combined = self.adaptive_histogram_eq(combined)
+        
+        # Calculate and apply adaptive clamp thresholds
+        lower_threshold = self.compute_quantile(combined, lower_clamp/100)
+        upper_threshold = self.compute_quantile(combined, upper_clamp/100)
+        combined = self.soft_clamp(combined, lower_threshold, upper_threshold)
+        
+        # Apply inverse gamma correction
+        combined = torch.pow(combined, 1/gamma)
+        
+        return (combined,)
 
 def convert_pnginfo_to_dict(pnginfo: PngInfo) -> dict:
     """
@@ -435,11 +592,10 @@ def get_uniformly_sized_crops(imgs, target_n_pixels=2048**2):
     
     return resized_imgs
 
-    
 from PIL import Image, ImageOps, ImageSequence
 class LoadRandomImage:
     def __init__(self):
-        self.img_extensions = [".png", ".jpg", ".jpeg", ".bmp", ".webp"]
+        self.img_extensions = [".png", ".jpg", ".jpeg", ".bmp", ".webp", ".JPEG", ".JPG"]
 
     @classmethod
     def INPUT_TYPES(s):
@@ -460,44 +616,137 @@ class LoadRandomImage:
     def load_image(self, folder, n_images, seed, sort, loop_sequence):
         image_paths = [os.path.join(folder, f) for f in os.listdir(folder)]
         image_paths = [f for f in image_paths if os.path.isfile(f)]
-        # filter using file extensions:
+        # Filter using file extensions
         image_paths = [f for f in image_paths if any([f.endswith(ext) for ext in self.img_extensions])]
-        # filter using image headers:
-        image_paths = [f for f in image_paths if imghdr.what(f)]
+        valid_image_paths = []
+        
+        for f in image_paths:
+            if imghdr.what(f):
+                valid_image_paths.append(f)
+            else:
+                try:
+                    # Attempt to open the image even if imghdr fails
+                    img = Image.open(f)
+                    img.verify()  # Ensure it's a valid image
+                    valid_image_paths.append(f)
+                except Exception as e:
+                    print(f"Skipping invalid image: {f} - {str(e)}")
 
         random.seed(seed)
-        random.shuffle(image_paths)
-
-        if sort:
-            image_paths = sorted(image_paths)
+        random.shuffle(valid_image_paths)
 
         if n_images > 0:
-            image_paths = image_paths[:n_images]
+            valid_image_paths = valid_image_paths[:n_images]
 
-        imgs = [Image.open(image_path) for image_path in image_paths]
-        output_images = []
-        for img in imgs:
-            img = ImageOps.exif_transpose(img)
+        if sort:
+            valid_image_paths = sorted(valid_image_paths)
+
+        imgs = []
+        for image_path in valid_image_paths:
+            try:
+                img = Image.open(image_path)
+                img = ImageOps.exif_transpose(img)  # Correct orientation based on EXIF if possible
+            except Exception as e:
+                print(f"Error during EXIF transpose for {image_path}: {str(e)}")
+
             if img.mode == 'I':
                 img = img.point(lambda i: i * (1 / 255))
+
             image = img.convert("RGB")
             image = np.array(image).astype(np.float32) / 255.0
-            output_images.append(image)
+            imgs.append(image)
 
-        if loop_sequence:
-            # Make sure the last image is the same as the first image:
-            output_images.append(output_images[0])
+        if loop_sequence and len(imgs) > 1:
+            imgs.append(imgs[0])  # Loop back to the first image
 
-        if len(output_images) > 1:
-            output_images = get_uniformly_sized_crops(output_images, target_n_pixels=1024**2)
-            output_images = [torch.from_numpy(output_image)[None,] for output_image in output_images]
-            output_image = torch.cat(output_images, dim=0)
+        if len(imgs) > 1:
+            imgs = get_uniformly_sized_crops(imgs, target_n_pixels=1024**2)
+            imgs = [torch.from_numpy(img)[None,] for img in imgs]
+            output_image = torch.cat(imgs, dim=0)
         else:
-            output_image = torch.from_numpy(output_images[0])[None,]
+            output_image = torch.from_numpy(imgs[0])[None,]
 
         return (output_image,)
 
 
+class ImageFolderIterator:
+    def __init__(self):
+        self.img_extensions = [".png", ".jpg", ".jpeg", ".bmp", ".webp", ".JPEG", ".JPG"]
+        
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "folder": ("STRING", {"default": "."}),
+                "index": ("INT", {"default": 0, "min": 0, "max": 99999}),
+                "sort": ("BOOLEAN", {"default": True}),
+            }
+        }
+    
+    CATEGORY = "Eden 🌱"
+    RETURN_TYPES = ("IMAGE", "STRING")
+    RETURN_NAMES = ("image", "filename")
+    FUNCTION = "load_image"
+    
+    def get_image_paths(self, folder, sort):
+        # List all files in the folder
+        image_paths = [os.path.join(folder, f) for f in os.listdir(folder)]
+        image_paths = [f for f in image_paths if os.path.isfile(f)]
+        # Filter using file extensions
+        image_paths = [f for f in image_paths if any([f.endswith(ext) for ext in self.img_extensions])]
+        valid_image_paths = []
+        
+        # Validate images
+        for f in image_paths:
+            if imghdr.what(f):
+                valid_image_paths.append(f)
+            else:
+                try:
+                    img = Image.open(f)
+                    img.verify()
+                    valid_image_paths.append(f)
+                except Exception as e:
+                    print(f"Skipping invalid image: {f} - {str(e)}")
+        
+        # Sort if requested
+        if sort:
+            valid_image_paths = sorted(valid_image_paths)
+            
+        return valid_image_paths
+    
+    def load_image(self, folder, index, sort):
+        valid_image_paths = self.get_image_paths(folder, sort)
+        
+        if not valid_image_paths:
+            raise ValueError(f"No valid images found in folder: {folder}")
+        
+        # Wrap around if index exceeds number of images
+        actual_index = index % len(valid_image_paths)
+        image_path = valid_image_paths[actual_index]
+        
+        try:
+            # Load and process image
+            img = Image.open(image_path)
+            img = ImageOps.exif_transpose(img)  # Correct orientation based on EXIF
+            
+            if img.mode == 'I':
+                img = img.point(lambda i: i * (1 / 255))
+            
+            image = img.convert("RGB")
+            image = np.array(image).astype(np.float32) / 255.0
+            
+            # Add batch dimension
+            output_image = torch.from_numpy(image)[None,]
+            
+            # Get filename without extension
+            filename = os.path.splitext(os.path.basename(image_path))[0]
+            
+            return (output_image, filename)
+            
+        except Exception as e:
+            raise RuntimeError(f"Error processing image {image_path}: {str(e)}")
+        
+        
 class LoadImagesByFilename:
     def __init__(self):
         self.img_extensions = [".png", ".jpg", ".jpeg", ".bmp", ".webp"]
@@ -506,7 +755,7 @@ class LoadImagesByFilename:
     def INPUT_TYPES(s):
         return {
             "required": {
-                    "filename": ("LIST",),
+                    "filename": ("COMBO", {"default": []}),
                     "max_num_images": ("INT", {"default": None}),
                     "seed": ("INT", {"default": 0, "min": 0, "max": 100000}),
                     "sort": ("BOOLEAN", {"default": False}),
@@ -558,8 +807,10 @@ class LoadImagesByFilename:
         return (output_image,)
 
 
-class GetRandomFile:
 
+
+
+class GetRandomFile:
     @classmethod
     def INPUT_TYPES(s):
         return {
@@ -580,88 +831,6 @@ class GetRandomFile:
         random.seed(seed)
         path = random.choice(files)
         return (path,)
-
-
-
-import torch
-import cv2
-import numpy as np
-
-class HIST_matcher_depracted:
-    def __init__(self):
-        self.ci = None
-
-    @classmethod
-    def INPUT_TYPES(s):
-        return {
-            "required": {
-                "src_image": ("IMAGE",),
-                "dst_images": ("IMAGE",),
-            }
-        }
-
-    RETURN_TYPES = ("IMAGE",)
-    FUNCTION = "hist_match"
-    CATEGORY = "Eden 🌱/Image"
-
-    def hist_match(self, src_image, dst_images):
-        # bs, h, w, c = src_image.shape
-
-        # Convert images to numpy arrays
-        src_image_np  = 255. * src_image.cpu().numpy()
-        dst_images_np = 255. * dst_images.cpu().numpy()
-
-        # clip to 0-255:
-        src_image_np  = np.clip(src_image_np, 0, 255).astype(np.uint8)
-        dst_images_np = np.clip(dst_images_np, 0, 255).astype(np.uint8)
-
-        # Convert images to YCrCb color space
-        input_img_ycrcb   = cv2.cvtColor(src_image_np[0], cv2.COLOR_BGR2YCrCb)
-        output_imgs_ycrcb = [cv2.cvtColor(img, cv2.COLOR_BGR2YCrCb) for img in dst_images_np]
-
-        # Compute the histogram of the input image
-        hist_input = cv2.calcHist([input_img_ycrcb], [0], None, [256], [0, 256])
-
-        # Compute the average histogram of the output images
-        hist_output_avg = np.mean([cv2.calcHist([img], [0], None, [256], [0, 256]) for img in output_imgs_ycrcb], axis=0)   
-
-        # Create a lookup table to map the average output histogram to the input histogram
-        cumulative_input = np.cumsum(hist_input) / sum(hist_input)
-        cumulative_output = np.cumsum(hist_output_avg) / sum(hist_output_avg)
-
-        lookup_table = np.zeros(256, dtype=np.uint8)
-        for i in range(256):
-            idx = np.abs(cumulative_input[i] - cumulative_output).argmin()
-            lookup_table[i] = idx
-
-        # Visualize the lookup table:
-        plt.figure()
-        plt.plot(lookup_table)
-        plt.savefig("lookup_table.png")
-        
-        # Apply the lookup table to the Y channel of each output image
-        adjusted_imgs = []
-
-        plt.figure()
-        for img in output_imgs_ycrcb:
-            img_adjusted = cv2.LUT(img[:,:,0], lookup_table)
-            img_adjusted = cv2.merge([img_adjusted, img[:,:,1], img[:,:,2]])
-
-            adjusted_hist = cv2.calcHist([img_adjusted], [0], None, [256], [0, 256])
-            plt.plot(adjusted_hist, label="Adjusted")
-
-            # Convert back to BGR color space and add to the list of adjusted images
-            img_adjusted_bgr = cv2.cvtColor(img_adjusted, cv2.COLOR_YCrCb2BGR)
-            torch_img = torch.tensor(img_adjusted_bgr).float() / 255.0
-            adjusted_imgs.append(torch_img)
-
-        plt.legend()
-        plt.savefig("adjusted_histograms.png")
-
-        output_tensors = torch.stack(adjusted_imgs, dim=0)
-
-        return (output_tensors,)
-
 
 
 
@@ -689,8 +858,6 @@ class IMG_resolution_multiple_of:
         w = w - w % multiple_of
         image = image[:, :h, :w, :]
         return (image,)
-
-
 
 class IMG_padder:
     def __init__(self):
@@ -873,40 +1040,50 @@ class IMG_scaler:
         return (output_image,)
 
 
-def to_grayscale(images, keep_dims=True):
+def to_grayscale(images, keep_dims=True, alpha_channel_convert_to=None):
     """
-    Convert a batch of RGB images to grayscale.
+    Convert a batch of RGB or RGBA images to grayscale.
     
     Args:
         images (torch.Tensor): Input tensor of shape (batch_size, height, width, channels)
-                                with channels = 3 for RGB images.
+                                with channels = 3 for RGB images or 4 for RGBA images.
+        keep_dims (bool): If True, maintain the original number of channels.
+        alpha_channel_convert_to (tuple or None): RGB values to set for transparent pixels.
     
     Returns:
-        torch.Tensor: Grayscale images of shape (batch_size, height, width, 1) or (batch_size, height, width, 3) if keep_dims=True.
+        torch.Tensor: Grayscale images of shape (batch_size, height, width, channels).
     """
-    if images.shape[-1] != 3:
-        raise ValueError("Input images must have 3 channels (RGB).")
+    if images.shape[-1] not in [3, 4]:
+        raise ValueError("Input images must have 3 (RGB) or 4 (RGBA) channels.")
 
     # Define the weights for the RGB channels to convert to grayscale.
-    # These are the standard weights used in the ITU-R BT.601 standard.
     weights = torch.tensor([0.2989, 0.5870, 0.1140], device=images.device)
 
+    # Separate the alpha channel if present
+    if images.shape[-1] == 4:
+        rgb = images[..., :3]
+        alpha = images[..., 3:]
+    else:
+        rgb = images
+        alpha = None
+
     # Permute the dimensions to (batch_size, channels, height, width)
-    # for easier matrix multiplication.
-    images_permuted = images.permute(0, 3, 1, 2)
+    rgb_permuted = rgb.permute(0, 3, 1, 2)
 
     # Perform the weighted sum along the channel dimension (dim=1)
-    grayscale_images = torch.tensordot(images_permuted, weights, dims=([1], [0]))
+    grayscale_images = torch.tensordot(rgb_permuted, weights, dims=([1], [0]))
 
     # Add an extra dimension for the channel at the end.
     grayscale_images = grayscale_images.unsqueeze(-1)
 
     if keep_dims:
-        # Permute the dimensions back to (batch_size, height, width, 1)
-        #grayscale_images = grayscale_images.permute(0, 2, 3, 1)
-        # Repeat the grayscale image 3 times to match the original dimensions.
+        # Repeat the grayscale image to match the original dimensions.
         grayscale_images = grayscale_images.repeat(1, 1, 1, 3)
-    
+        
+        if alpha is not None:
+            # If alpha_channel_convert_to is provided, blend the grayscale with the specified color
+            if alpha_channel_convert_to is not None:
+                grayscale_images = grayscale_images * alpha + alpha_channel_convert_to * (1 - alpha)
 
     return grayscale_images
 
@@ -920,6 +1097,7 @@ class ConvertToGrayscale:
         return {
             "required": {
                 "image": ("IMAGE",),
+                "alpha_channel_convert_to": ("FLOAT", {"default": 0.0, "min": 0, "max": 1, "step": 0.01})
             }
         }
 
@@ -927,16 +1105,16 @@ class ConvertToGrayscale:
     FUNCTION = "convert_to_grayscale"
     CATEGORY = "Eden 🌱/Image"
 
-    def convert_to_grayscale(self, image):
-        # Input is a torch tensor with shape (bs, c, h, w)
+    def convert_to_grayscale(self, image, alpha_channel_convert_to):
+        # Input is a torch tensor with shape (bs, h, w, c)
         bs, h, w, c = image.shape
         if c == 1:
-            pass
-        elif c == 3:
+            return (image,)
+        elif c in [3, 4]:
             # Convert the image to grayscale
-            image = to_grayscale(image)
+            image = to_grayscale(image, keep_dims=True, alpha_channel_convert_to=alpha_channel_convert_to)
         else:
-            raise ValueError(f"Input image must have 1 or 3 channels, but got {c} channels. Image shape = {image.shape}")
+            raise ValueError(f"Input image must have 1, 3, or 4 channels, but got {c} channels. Image shape = {image.shape}")
         return (image,)
 
 
@@ -1014,3 +1192,45 @@ class AspectPadImageForOutpainting:
             bottom = 0
 
         return (resized_image, left, top, right, bottom)
+    
+
+class Extend_Sequence:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "images": ("IMAGE",),  # Input is a stack of images
+                "target_n_frames": ("INT", {"default": 24, "min": 1, "step": 1}),  # Desired output number of frames
+                "mode": (["wrap_around", "ping_pong"], ),  # Various modes for handling the sequence
+            }
+        }
+
+    RETURN_TYPES = ("IMAGE",)
+    FUNCTION = "process_sequence"
+    CATEGORY = "Eden 🌱/Image"
+
+    def process_sequence(self, images, target_n_frames, mode="wrap_around"):
+        n_frames = images.shape[0]
+
+        if mode == "wrap_around":
+            # Wrap the sequence around to get target_n_frames
+            extended_images = self._wrap_around(images, target_n_frames)
+        elif mode == "ping_pong":
+            # Repeat and reverse the sequence to create a ping-pong effect
+            extended_images = self._ping_pong(images, target_n_frames)
+
+        return (extended_images,)
+
+    def _wrap_around(self, images, target_n_frames):
+        """Wrap around the input images to match the target number of frames."""
+        n_frames = images.shape[0]
+        # Use torch indexing to repeat images without new allocations
+        indices = torch.arange(target_n_frames) % n_frames
+        return images[indices]
+
+    def _ping_pong(self, images, target_n_frames):
+        """Create a ping-pong effect by repeating and reversing frames."""
+        n_frames = images.shape[0]
+        indices = torch.arange(target_n_frames) % (2 * n_frames)
+        indices = torch.where(indices >= n_frames, 2 * n_frames - indices - 1, indices)
+        return images[indices]

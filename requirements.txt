@@ -1,5 +1,5 @@
 clip-interrogator==0.6.0
-open_clip_torch
+open_clip_torch==2.26.1
 openai
 python-dotenv
 scikit-learn

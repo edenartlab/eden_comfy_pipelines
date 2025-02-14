@@ -1,7 +1,6 @@
 import torch
 import torch.nn.functional as F
 from PIL import Image
-import sys, os, time
 import torch
 import cv2
 import numpy as np
@@ -62,7 +61,7 @@ def smart_depth_slicing(rgb_img, depth_img, n_slices, rgb_weight, standardize_fe
 
     # Sort the cluster centers based on depth
     sorted_indices = np.argsort(depth_centers)
-    sorted_centers = depth_centers[sorted_indices]
+    #sorted_centers = depth_centers[sorted_indices]
 
     # Reshape cluster_indices back to original image shape
     cluster_indices = cluster_indices.reshape(depth_img.shape)
@@ -84,7 +83,68 @@ def smart_depth_slicing(rgb_img, depth_img, n_slices, rgb_weight, standardize_fe
     
     return mask_images
 
+import torch
 
+class Eden_DepthSlice_MaskVideo:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": 
+                    {"depth_map": ("IMAGE",),
+                     "slice_width": ("FLOAT", {"default": 0.1, "min": 0.01, "max": 0.99, "step": 0.01}),
+                     "min_depth": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.01}),
+                     "max_depth": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
+                     "gamma_correction": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 10.0, "step": 0.1}),
+                     "n_frames": ("INT", {"default": 100}),
+                     "reverse": ("BOOLEAN", {"default": False}),
+                     "bounce": ("BOOLEAN", {"default": False}),
+                     }
+                }
+
+    RETURN_TYPES = ("MASK","MASK")
+    RETURN_NAMES = ("depth_slice_masks", "gamma_corrected_depth_map")
+    FUNCTION = "generate_mask_video"
+    CATEGORY = "Eden 🌱/Depth"
+
+    def generate_mask_video(self, depth_map, slice_width, min_depth, max_depth, gamma_correction, n_frames, reverse, bounce):
+        # Ensure depth_map is normalized between 0 and 1:
+        depth_map = depth_map - depth_map.min()
+        depth_map = depth_map / depth_map.max()
+
+        # Apply gamma correction to the input depth map
+        depth_map = depth_map ** gamma_correction
+
+        # If depth_map has multiple channels, select the first one
+        if depth_map.shape[-1] == 3:
+            depth_map = depth_map[..., 0]  # Retain only the first channel
+
+        # Adjust n_frames for bouncing effect if enabled
+        if bounce:
+            n_frames = n_frames // 2
+
+        # Set up video frames tensor on the same device as depth_map
+        device = depth_map.device
+        video_frames = torch.zeros((n_frames, *depth_map.shape[1:3]), dtype=torch.float32, device=device)
+
+        # Calculate each frame's depth range based on slice width and min_depth/max_depth:
+        for i in range(n_frames):
+            lower_bound = min_depth + (max_depth - slice_width - min_depth) * i / n_frames
+            upper_bound = lower_bound + slice_width
+
+            # Generate mask for the current depth range:
+            mask = (depth_map >= lower_bound) & (depth_map < upper_bound)
+            video_frames[i] = mask.squeeze().float()
+
+        # Reverse the video frames if the reverse flag is enabled
+        if reverse:
+            video_frames = video_frames.flip(0)
+
+        # Handle bounce effect by concatenating the frames in reverse order
+        if bounce:
+            video_frames = torch.cat([video_frames, video_frames.flip(0)])
+            if video_frames.shape[0] < n_frames:
+                video_frames = torch.cat([video_frames, video_frames[-1:]])
+
+        return (video_frames, depth_map)
 
 class DepthSlicer:
     @classmethod
