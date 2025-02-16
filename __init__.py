@@ -69,7 +69,9 @@ NODE_CLASS_MAPPINGS = {
     "Eden_DepthSlice_MaskVideo": Eden_DepthSlice_MaskVideo,
     "KeyframeBlender": KeyframeBlender,
     "Eden_RandomPromptFromFile": Eden_RandomPromptFromFile,
-    "Eden_StringReplace": Eden_StringReplace
+    "Eden_StringReplace": Eden_StringReplace,
+    "SDTypeConverter": SDTypeConverter,
+    "SDAnyConverter": SDAnyConverter
 }
 
 try:
