@@ -69,16 +69,21 @@ NODE_CLASS_MAPPINGS = {
     "Eden_DepthSlice_MaskVideo": Eden_DepthSlice_MaskVideo,
     "KeyframeBlender": KeyframeBlender,
     "Eden_RandomPromptFromFile": Eden_RandomPromptFromFile,
-    "Eden_StringReplace": Eden_StringReplace
+    "Eden_StringReplace": Eden_StringReplace,
+    "Eden_randbool": Eden_randbool,
+    "Eden_Face_Crop": Eden_Face_Crop
 }
 
 try:
     from random_conditioning.random_c_utils import *
     # add keys:
     NODE_CLASS_MAPPINGS_ADD = {
-        "SaveConditioning": SaveConditioning,
-        "LoadConditioning": LoadConditioning,
-        "Eden_RandomConditioningSamplerNode": Eden_RandomConditioningSamplerNode
+        "SaveConditioning": Eden_SaveConditioning,
+        "LoadConditioning": Eden_LoadConditioning,
+        "Inspect_Conditioning": Eden_Inspect_Conditioning,
+        "Eden_RandomConditioningSamplerNode": Eden_RandomConditioningSamplerNode,
+        "Eden_Load_Legacy_Conditioning": Eden_Load_Legacy_Conditioning,
+        "Eden_get_random_file_from_folder": Eden_get_random_file_from_folder
     }
     NODE_CLASS_MAPPINGS.update(NODE_CLASS_MAPPINGS_ADD)
 except:

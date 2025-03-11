@@ -9,6 +9,9 @@ import gc
 import torch
 import imghdr
 
+import torch.nn.functional as F
+from scipy import ndimage
+
 ###########################################################################
 
 # Import comfyUI modules:
@@ -543,6 +546,175 @@ def convert_pnginfo_to_dict(pnginfo: PngInfo) -> dict:
         metadata_dict[key] = pnginfo.get(key)
 
     return metadata_dict
+
+
+import torch
+import torch.nn.functional as F
+import numpy as np
+from scipy import ndimage
+
+class Eden_Face_Crop:
+    """Node to crop face from image using a face mask"""
+    
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "image": ("IMAGE",),
+                "face_mask": ("MASK",),
+                "padding_factor": ("FLOAT", {"default": 1.2, "min": 0.1, "max": 10.0, "step": 0.1}),
+                "threshold": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 1.0, "step": 0.01}),
+                "min_face_ratio": ("FLOAT", {"default": 0.01, "min": 0.001, "max": 1.0, "step": 0.001}),
+            }
+        }
+
+    FUNCTION = "crop_face"
+    RETURN_TYPES = ("IMAGE", "INT", "INT", "INT", "INT", "MASK")
+    RETURN_NAMES = ("cropped_face", "crop_x", "crop_y", "crop_width", "crop_height", "crop_mask")
+    CATEGORY = "Eden 🌱/face"
+    
+    def find_main_face_bbox(self, mask_tensor, threshold=0.5, min_face_ratio=0.01):
+        """Find the bounding box of the main face region"""
+        # Convert mask to numpy - keep the 2D structure
+        mask_np = mask_tensor[0].cpu().numpy()  # Remove batch dimension but keep 2D shape
+        
+        # If mask has an extra channel dimension, remove it
+        if len(mask_np.shape) == 3:
+            mask_np = mask_np[0]  # Take first channel if needed
+            
+        # Normalize mask to 0-1 if needed
+        if mask_np.max() > 1.0:
+            mask_np = mask_np / 255.0
+        
+        # Binary threshold
+        mask_binary = (mask_np > threshold).astype(np.uint8)
+        
+        # Calculate minimum face size based on image dimensions
+        image_size = max(mask_np.shape)
+        min_face_size = (image_size * min_face_ratio) ** 2  # Square of min dimension
+        
+        # Find connected components
+        labeled, num_features = ndimage.label(mask_binary)
+        
+        # Find regions that could be faces based on relative size
+        valid_regions = []
+        for i in range(1, num_features + 1):
+            region_mask = labeled == i
+            region_size = np.sum(region_mask)
+            
+            # Skip regions smaller than minimum face size
+            if region_size < min_face_size:
+                continue
+            
+            # Get bounding box
+            rows = np.any(region_mask, axis=1)
+            cols = np.any(region_mask, axis=0)
+            y_min, y_max = np.where(rows)[0][[0, -1]]
+            x_min, x_max = np.where(cols)[0][[0, -1]]
+            
+            width = x_max - x_min
+            height = y_max - y_min
+            
+            valid_regions.append((width * height, (x_min, y_min, x_max, y_max)))
+        
+        if not valid_regions:
+            return None, mask_binary
+        
+        # Sort by area and take the largest valid region
+        valid_regions.sort(reverse=True)
+        return valid_regions[0][1], mask_binary
+
+    def apply_padding(self, bbox, image_shape, padding_factor):
+        """Apply padding to bounding box"""
+        x_min, y_min, x_max, y_max = bbox
+        
+        # Calculate center and size
+        center_x = (x_min + x_max) // 2
+        center_y = (y_min + y_max) // 2
+        width = x_max - x_min
+        height = y_max - y_min
+        
+        # Calculate target size with padding
+        target_width = int(width * padding_factor)
+        target_height = int(height * padding_factor)
+        
+        # Make square if dimensions are close (within 20%)
+        size_ratio = min(target_width, target_height) / max(target_width, target_height)
+        if size_ratio > 0.8:  # If dimensions are within 20% of each other
+            target_size = max(target_width, target_height)
+            target_width = target_height = target_size
+        
+        # Calculate new bounds
+        x_min = center_x - target_width // 2
+        x_max = center_x + target_width // 2
+        y_min = center_y - target_height // 2
+        y_max = center_y + target_height // 2
+        
+        # Clamp to image boundaries
+        x_min = max(0, x_min)
+        y_min = max(0, y_min)
+        x_max = min(image_shape[1], x_max)
+        y_max = min(image_shape[0], y_max)
+        
+        return x_min, y_min, x_max, y_max
+
+    def crop_face(self, image: torch.Tensor, face_mask: torch.Tensor, padding_factor: float = 1.2, 
+                 threshold: float = 0.5, min_face_ratio: float = 0.01):
+        """Crop face from image using face mask"""
+        try:
+            # Find face bounding box and get binary mask
+            bbox_result = self.find_main_face_bbox(face_mask, threshold, min_face_ratio)
+            
+            # If no face found, return black image and zeros
+            if bbox_result[0] is None:
+                black_image = torch.zeros_like(image)
+                zero_mask = torch.zeros_like(face_mask)
+                return (black_image, 0, 0, image.shape[2], image.shape[1], zero_mask)
+            
+            bbox, binary_mask = bbox_result
+            
+            # Apply padding
+            x_min, y_min, x_max, y_max = self.apply_padding(
+                bbox, face_mask.shape[1:3], padding_factor
+            )
+            
+            # Handle image tensor dimensions correctly
+            if len(image.shape) == 3:  # If image is [H, W, C]
+                cropped = image[y_min:y_max, x_min:x_max, :]
+            else:  # If image is [B, H, W, C] or [B, C, H, W]
+                if image.shape[1] == 3:  # [B, C, H, W] format
+                    cropped = image[:, :, y_min:y_max, x_min:x_max]
+                else:  # [B, H, W, C] format
+                    cropped = image[:, y_min:y_max, x_min:x_max, :]
+            
+            # Create a mask for the cropped region filled with white (1.0)
+            final_crop_mask = torch.zeros_like(face_mask)
+            final_crop_mask[0, y_min:y_max, x_min:x_max] = 1.0  # Fill padded region with white
+            
+            # Get final dimensions
+            crop_width = x_max - x_min
+            crop_height = y_max - y_min
+            
+            return (
+                cropped,
+                x_min,
+                y_min,
+                crop_width,
+                crop_height,
+                final_crop_mask
+            )
+            
+        except Exception as e:
+            # Return black image and zeros in case of any error
+            black_image = torch.zeros_like(image)
+            zero_mask = torch.zeros_like(face_mask)
+            return (black_image, 0, 0, image.shape[2], image.shape[1], zero_mask)
+
+
+
+
+
+
 
 
 def round_to_nearest_multiple(number, multiple):

@@ -350,7 +350,24 @@ class Eden_StringReplace:
     def replace_text(self, input_string: str, target_text: str, replace_with: str):
         result = input_string.replace(target_text, replace_with)
         return (result,)
+    
+class Eden_randbool:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": {
+                    "seed": ("INT", {"default": 0}),
+                    "probability": ("FLOAT", {"default": 0.5}),
+                }
+            }
+    RETURN_TYPES = ("BOOL",)
+    RETURN_NAMES = ("bool",)
+    FUNCTION = "sample"
+    CATEGORY = "Eden 🌱/random_c"
 
+    def sample(self, seed, probability):
+        torch.manual_seed(seed)
+        return (torch.rand(1).item() < probability,)
+    
 
 class Eden_RandomPromptFromFile:
     @classmethod
