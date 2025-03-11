@@ -72,6 +72,8 @@ NODE_CLASS_MAPPINGS = {
     "Eden_StringReplace": Eden_StringReplace,
     "Eden_randbool": Eden_randbool,
     "Eden_Face_Crop": Eden_Face_Crop
+    "SDTypeConverter": SDTypeConverter,
+    "SDAnyConverter": SDAnyConverter
 }
 
 try:

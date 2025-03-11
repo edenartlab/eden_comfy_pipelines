@@ -4,6 +4,7 @@ import folder_paths
 from statistics import mean
 import torch
 from typing import Any, Mapping
+import comfy.samplers
 
 def find_comfy_models_dir():
     return str(folder_paths.models_dir)
@@ -477,3 +478,70 @@ class Eden_DetermineFrameCount:
         result = max(min_frames, min(result, max_frames))
         
         return (int(result),)
+
+class SDTypeConverter:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {},
+            "optional": {
+                "model_name": (
+                    folder_paths.get_filename_list("checkpoints"),
+                    {"forceInput": True},
+                ),
+                "sampler_name": (
+                    comfy.samplers.KSampler.SAMPLERS,
+                    {"forceInput": True},
+                ),
+                "scheduler": (
+                    comfy.samplers.KSampler.SCHEDULERS,
+                    {"forceInput": True}
+                ),
+            },
+        }
+
+    RETURN_TYPES = (
+        "STRING",
+        "STRING",
+        "STRING",
+    )
+
+    RETURN_NAMES = (
+        "MODEL_NAME_STR",
+        "SAMPLER_NAME_STR",
+        "SCHEDULER_STR",
+    )
+
+    FUNCTION = "convert_string"
+    CATEGORY = "SD Prompt Reader"
+
+    def convert_string(
+        self, model_name: str = "", sampler_name: str = "", scheduler: str = ""
+    ):
+        return (
+            model_name,
+            sampler_name,
+            scheduler,
+        )
+
+
+class SDAnyConverter:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {},
+            "optional": {
+                "any_type_input": (
+                    any_typ,
+                    {"forceInput": True},
+                ),
+            },
+        }
+
+    RETURN_TYPES = (any_typ,)
+    RETURN_NAMES = ("ANY_TYPE_OUTPUT",)
+    FUNCTION = "convert_any"
+    CATEGORY = "SD Prompt Reader"
+
+    def convert_any(self, any_type_input: str = ""):
+        return (any_type_input,)
