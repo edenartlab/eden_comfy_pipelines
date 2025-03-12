@@ -634,7 +634,7 @@ class Eden_FaceToMask:
         return (mask,)
 
 class Eden_Face_Crop:
-    """Node to crop face from image using a face mask"""
+    """Takes a hard or soft mask image, crops out the main face and returns reconstruction mask and face images."""
     
     @classmethod
     def INPUT_TYPES(cls):
@@ -657,7 +657,6 @@ class Eden_Face_Crop:
         """Find the bounding box of the main face region"""
         # Validate inputs
         if mask_tensor is None or mask_tensor.numel() == 0:
-            print("Warning: Empty or None mask tensor provided")
             return None, None
             
         # Convert mask to numpy - keep the 2D structure
@@ -670,11 +669,9 @@ class Eden_Face_Crop:
                 
             # Validate mask after conversion
             if mask_np.size == 0:
-                print("Warning: Empty mask after conversion")
                 return None, None
                 
         except Exception as e:
-            print(f"Error converting mask to numpy: {e}")
             return None, None
         
         # Normalize mask to 0-1 if needed
@@ -684,7 +681,6 @@ class Eden_Face_Crop:
         # Binary threshold with validation
         mask_binary = (mask_np > threshold).astype(np.uint8)
         if np.sum(mask_binary) == 0:
-            print(f"No regions found above threshold {threshold}. Try lowering the threshold.")
             return None, mask_binary
         
         # Calculate minimum face size based on image dimensions
@@ -694,13 +690,11 @@ class Eden_Face_Crop:
         # Find connected components
         try:
             labeled, num_features = ndimage.label(mask_binary)
-            print(f"Found {num_features} potential face regions")
             
             if num_features == 0:
                 return None, mask_binary
                 
         except Exception as e:
-            print(f"Error finding connected components: {e}")
             return None, mask_binary
         
         # Find regions that could be faces based on relative size
@@ -711,7 +705,6 @@ class Eden_Face_Crop:
             
             # Skip regions smaller than minimum face size
             if region_size < min_face_size:
-                print(f"Region {i} too small: {region_size} < {min_face_size}")
                 continue
             
             # Get bounding box safely
@@ -722,7 +715,6 @@ class Eden_Face_Crop:
                 x_indices = np.where(cols)[0]
                 
                 if len(y_indices) == 0 or len(x_indices) == 0:
-                    print(f"Region {i} has empty indices")
                     continue
                     
                 y_min, y_max = y_indices[[0, -1]]
@@ -733,28 +725,19 @@ class Eden_Face_Crop:
                 
                 # Skip degenerate rectangles
                 if width <= 0 or height <= 0:
-                    print(f"Region {i} has invalid dimensions: {width}x{height}")
                     continue
                 
                 # Store the region info with its area for sorting
                 valid_regions.append((width * height, (x_min, y_min, x_max, y_max)))
-                print(f"Valid region {i}: bbox={x_min},{y_min},{x_max},{y_max}, area={width*height}")
                 
             except Exception as e:
-                print(f"Error processing region {i}: {e}")
                 continue
         
         if not valid_regions:
-            print("No valid face regions found")
             return None, mask_binary
         
         # Sort by area and take the largest valid region
         valid_regions.sort(reverse=True)
-        
-        # DEBUG: Print top face regions if multiple found
-        if len(valid_regions) > 1:
-            print(f"Multiple face regions found. Selected largest with area {valid_regions[0][0]}px²")
-            print(f"Second largest region has area {valid_regions[1][0]}px²")
         
         return valid_regions[0][1], mask_binary
 
@@ -764,11 +747,9 @@ class Eden_Face_Crop:
         
         # Validate inputs
         if x_min >= x_max or y_min >= y_max:
-            print(f"Invalid bbox: x_min={x_min}, y_min={y_min}, x_max={x_max}, y_max={y_max}")
             return bbox  # Return original bbox if invalid
             
         if image_shape[0] <= 0 or image_shape[1] <= 0:
-            print(f"Invalid image shape: {image_shape}")
             return bbox
         
         # Calculate center and size
@@ -779,7 +760,6 @@ class Eden_Face_Crop:
         
         # Validate dimensions
         if width <= 0 or height <= 0:
-            print(f"Invalid dimensions: width={width}, height={height}")
             return bbox
         
         # Calculate target size with padding
@@ -811,7 +791,6 @@ class Eden_Face_Crop:
         
         # Ensure dimensions are valid
         if new_x_max <= new_x_min or new_y_max <= new_y_min:
-            print(f"Warning: Invalid dimensions after padding, reverting to original bbox")
             return bbox
         
         # One last sanity check to ensure we're within bounds
@@ -827,66 +806,50 @@ class Eden_Face_Crop:
         try:
             # Ensure we have valid inputs
             if image is None or face_mask is None:
-                print("Error: Received None for image or face_mask")
                 # Return defaults that match expected ComfyUI dimensionality
                 empty_mask = torch.zeros((1, image.shape[1], image.shape[2])) 
                 return (image, 0, 0, image.shape[2], image.shape[1], empty_mask, empty_mask)
                 
-            # Print dimensions for debugging
-            print(f"Face mask shape: {face_mask.shape}")
-            print(f"Image shape: {image.shape}")
-            
             # Ensure image is in [B, H, W, C] format as per ComfyUI
             if len(image.shape) != 4 or image.shape[3] not in [1, 3, 4]:
-                print(f"Error: Image not in expected ComfyUI format [B, H, W, C]. Got {image.shape}")
                 # Try to convert if possible
                 if len(image.shape) == 4 and image.shape[1] in [1, 3, 4]:
                     # Convert from [B, C, H, W] to [B, H, W, C]
                     image = image.permute(0, 2, 3, 1)
-                    print(f"Converted image to ComfyUI format: {image.shape}")
             
             # Ensure mask is in [B, H, W] format as per ComfyUI
             if len(face_mask.shape) != 3:
-                print(f"Error: Mask not in expected ComfyUI format [B, H, W]. Got {face_mask.shape}")
                 # Try to convert if possible
                 if len(face_mask.shape) == 4 and face_mask.shape[1] == 1:
                     # Convert from [B, C, H, W] to [B, H, W]
                     face_mask = face_mask[:, 0]
-                    print(f"Converted mask to ComfyUI format: {face_mask.shape}")
             
             # Find face bounding box and get binary mask
             bbox_result = self.find_main_face_bbox(face_mask, threshold, min_face_ratio)
             
             # If no face found, return original image and zeros
             if bbox_result[0] is None:
-                print("No face detected in the mask")
                 # Return original image with zero mask
                 empty_mask = torch.zeros((1, face_mask.shape[1], face_mask.shape[2]))
                 return (image, 0, 0, image.shape[2], image.shape[1], empty_mask, empty_mask)
             
             bbox, binary_mask = bbox_result
-            print(f"Detected face bbox: {bbox}")
             
             # Apply padding
             try:
                 # For ComfyUI format, mask shape would be [B, H, W]
                 # So image shape for padding is (H, W)
                 image_shape = (face_mask.shape[1], face_mask.shape[2])
-                print(f"Using image shape for padding: {image_shape}")
                 
                 x_min, y_min, x_max, y_max = self.apply_padding(
                     bbox, image_shape, padding_factor
                 )
-                print(f"Padded bbox: x_min={x_min}, y_min={y_min}, x_max={x_max}, y_max={y_max}")
             except Exception as e:
-                print(f"Error in padding: {e}")
                 # Use original bbox without padding as fallback
                 x_min, y_min, x_max, y_max = bbox
-                print(f"Using original bbox: x_min={x_min}, y_min={y_min}, x_max={x_max}, y_max={y_max}")
             
             # Double-check for valid crop dimensions
             if y_max <= y_min or x_max <= x_min:
-                print("Invalid crop dimensions, returning original image")
                 empty_mask = torch.zeros((1, face_mask.shape[1], face_mask.shape[2]))
                 return (image, 0, 0, image.shape[2], image.shape[1], empty_mask, empty_mask)
                 
@@ -903,16 +866,13 @@ class Eden_Face_Crop:
             # Handle image tensor cropping for ComfyUI format [B, H, W, C]
             try:
                 cropped = image[:, y_min:y_max, x_min:x_max, :]
-                print(f"Cropped shape after slicing: {cropped.shape}")
                 
                 # Verify we have a valid crop
                 if cropped.numel() == 0 or 0 in cropped.shape:
-                    print("Warning: Empty crop, returning original image")
                     empty_mask = torch.zeros((1, face_mask.shape[1], face_mask.shape[2]))
                     return (image, 0, 0, image.shape[2], image.shape[1], empty_mask, empty_mask)
                     
             except Exception as e:
-                print(f"Error during image cropping: {e}")
                 empty_mask = torch.zeros((1, face_mask.shape[1], face_mask.shape[2]))
                 return (image, 0, 0, image.shape[2], image.shape[1], empty_mask, empty_mask)
             
@@ -920,9 +880,7 @@ class Eden_Face_Crop:
             try:
                 final_crop_mask = torch.zeros((face_mask.shape[0], face_mask.shape[1], face_mask.shape[2]))
                 final_crop_mask[:, y_min:y_max, x_min:x_max] = 1.0
-                print(f"Created mask with shape {final_crop_mask.shape}, sum: {final_crop_mask.sum()}")
             except Exception as e:
-                print(f"Error creating face mask: {e}")
                 # Create a basic fallback mask in ComfyUI format [B, H, W]
                 final_crop_mask = torch.zeros((face_mask.shape[0], face_mask.shape[1], face_mask.shape[2]))
                 final_crop_mask[:, y_min:y_max, x_min:x_max] = 1.0
@@ -933,19 +891,12 @@ class Eden_Face_Crop:
             
             # Create custom mask from the original face_mask
             try:
-                # CRITICAL FIX - This line needs to change
-                # We need a mask with the exact same shape as the cropped image, but without the channel dimension
-                # The crop has shape [B, crop_height, crop_width, C]
-                # So our mask should be [B, crop_height, crop_width]
-                
-                # First extract the face region from the original mask
+                # Extract the face region from the original mask
                 face_region = face_mask[:, y_min:y_max, x_min:x_max]
                 
                 # Make sure it has the right batch dimension
                 if face_region.shape[0] != cropped.shape[0]:
                     face_region = face_region.expand(cropped.shape[0], -1, -1)
-                
-                print(f"Face region mask shape: {face_region.shape}")
                 
                 # Normalize if needed
                 if face_region.max() > 0:
@@ -954,17 +905,9 @@ class Eden_Face_Crop:
                 # Use this as our custom mask
                 custom_mask = face_region
                 
-                # Debug print
-                print(f"Final custom mask shape: {custom_mask.shape}")
-                
             except Exception as e:
-                print(f"Error creating custom mask: {e}")
                 # Create a fallback mask with the correct shape
                 custom_mask = torch.ones((cropped.shape[0], cropped.shape[1], cropped.shape[2]))
-                print(f"Created fallback mask with shape: {custom_mask.shape}")
-            
-            # Debugging output to check shapes
-            print(f"Shapes found: {[list(item.shape) for item in [custom_mask]]}")
             
             return (
                 cropped,
@@ -977,7 +920,6 @@ class Eden_Face_Crop:
             )
             
         except Exception as e:
-            print(f"Error in face cropping: {e}")
             # Return original image with default mask values
             empty_mask = torch.zeros((1, face_mask.shape[1], face_mask.shape[2]))
             return (image, 0, 0, image.shape[2], image.shape[1], empty_mask, empty_mask)
