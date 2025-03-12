@@ -73,7 +73,9 @@ NODE_CLASS_MAPPINGS = {
     "Eden_randbool": Eden_randbool,
     "Eden_Face_Crop": Eden_Face_Crop,
     "SDTypeConverter": SDTypeConverter,
-    "SDAnyConverter": SDAnyConverter
+    "SDAnyConverter": SDAnyConverter,
+    "Eden_FaceToMask": Eden_FaceToMask,
+    "Eden_ImageMaskComposite": Eden_ImageMaskComposite
 }
 
 try:
