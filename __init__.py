@@ -99,15 +99,16 @@ def print_eden_banner():
     """
     Prints a decorative banner for the Eden ComfyUI pack on load
     """
+
     green = "\033[32m"
     reset = "\033[0m"
     bold = "\033[1m"
-    
+
     banner = f"""
-{green}🌱 🌱 🌱 🌱 🌱 🌱 🌱 🌱 🌱 🌱 🌱 🌱 🌱 🌱 🌱 🌱 🌱{reset}
-{bold}Eden ComfyUI Pack maintained by {green}https://eden.art/{reset}
-{green}🌱 🌱 🌱 🌱 🌱 🌱 🌱 🌱 🌱 🌱 🌱 🌱 🌱 🌱 🌱 🌱 🌱{reset}
-"""
+    {green}🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱{reset}
+    {bold}🌱 Eden ComfyUI Pack maintained by {green}https://eden.art/  🌱{reset}
+    {green}🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱{reset}
+    """
     print(banner)
 
 # Call this function when your package loads
