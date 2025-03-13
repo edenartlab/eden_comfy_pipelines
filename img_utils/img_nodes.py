@@ -12,6 +12,9 @@ import imghdr
 import torch.nn.functional as F
 from scipy import ndimage
 
+import torchvision.transforms.functional as T
+import comfy.utils
+
 ###########################################################################
 
 # Import comfyUI modules:
@@ -27,8 +30,77 @@ def print_available_memory():
     memory = psutil.virtual_memory()
     print(f"Available memory: {memory.available / 1024 / 1024 / 1024:.2f} GB")
 
-import torchvision.transforms.functional as T
-import comfy.utils
+class Eden_Random_Flip:
+    """Node that randomly flips each image or mask in a batch horizontally with a given probability"""
+    
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "images": ("IMAGE",),  # Accept any tensor type (IMAGE, MASK, etc.)
+                "flip_probability": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 1.0, "step": 0.01}),
+            }
+        }
+
+    FUNCTION = "random_flip"
+    RETURN_TYPES = ("IMAGE",)  # Return the same type as input
+    RETURN_NAMES = ("images",)
+    CATEGORY = "Eden 🌱/transform"
+
+    def random_flip(self, tensor, flip_probability=0.5):
+        """
+        Randomly flip each image/mask in a batch horizontally with the given probability
+        
+        Args:
+            tensor: Input tensor, can be IMAGE [B,H,W,C] or MASK [B,H,W]
+            flip_probability: Probability of applying the horizontal flip for each individual image
+            
+        Returns:
+            Tensor of the same type, with individual images possibly flipped horizontally
+        """
+        # Return early if tensor is empty
+        if tensor is None or tensor.numel() == 0:
+            return tensor
+            
+        # Create a copy of the tensor to avoid modifying the original
+        result = tensor.clone()
+        
+        # Determine tensor format
+        if len(tensor.shape) == 4 and tensor.shape[3] in [1, 3, 4]:
+            # IMAGE format [B,H,W,C]
+            batch_size = tensor.shape[0]
+            for b in range(batch_size):
+                if random.random() < flip_probability:
+                    # Flip this individual image along width dimension (dim=1)
+                    result[b] = torch.flip(tensor[b], dims=[1])
+                    
+        elif len(tensor.shape) == 3:
+            # MASK format [B,H,W]
+            batch_size = tensor.shape[0]
+            for b in range(batch_size):
+                if random.random() < flip_probability:
+                    # Flip this individual mask along width dimension (dim=1)
+                    result[b] = torch.flip(tensor[b], dims=[1])
+                    
+        elif len(tensor.shape) == 4 and tensor.shape[1] in [1, 3, 4]:
+            # [B,C,H,W] format
+            batch_size = tensor.shape[0]
+            for b in range(batch_size):
+                if random.random() < flip_probability:
+                    # Flip this individual image along width dimension (dim=2)
+                    result[b] = torch.flip(tensor[b], dims=[2])
+                    
+        else:
+            # If format is unknown, treat first dimension as batch
+            # and assume second-to-last dimension is width
+            batch_size = tensor.shape[0]
+            for b in range(batch_size):
+                if random.random() < flip_probability:
+                    # Flip along the second-to-last dimension
+                    flip_dims = [len(tensor.shape) - 2]
+                    result[b] = torch.flip(tensor[b], dims=flip_dims)
+                    
+        return result
 
 class Eden_MaskBoundingBox:
     @classmethod

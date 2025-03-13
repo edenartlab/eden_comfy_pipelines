@@ -165,26 +165,4 @@ class Eden_IfExecute:
         return (IF_TRUE if ANY else IF_FALSE,)
 
 
-class Eden_DebugPrint:
-    """
-    This node prints the input to the console.
-    """
-
-    @classmethod
-    def INPUT_TYPES(s):
-        """
-        Takes in any input.
-        """
-        return {"required": {"ANY": (AlwaysEqualProxy({}),)}}
-
-    RETURN_TYPES = ()
-    OUTPUT_NODE = True
-    FUNCTION = "log_input"
-    CATEGORY = "Eden 🌱/Logic"
-
-    def log_input(self, ANY):
-        print(ANY)
-        return {}
-
-
 

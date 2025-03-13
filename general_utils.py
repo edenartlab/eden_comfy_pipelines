@@ -5,9 +5,240 @@ from statistics import mean
 import torch
 from typing import Any, Mapping
 import comfy.samplers
+import re
+
+# wildcard trick is taken from pythongossss's
+class AnyType(str):
+    def __ne__(self, __value: object) -> bool:
+        return False
+
+any_typ = AnyType("*")
 
 def find_comfy_models_dir():
     return str(folder_paths.models_dir)
+
+class Eden_Debug_Anything:
+    """Node that prints the input to the console with detailed information based on datatype"""
+    
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "input": (any_typ, {"default": None}),
+            }
+        }
+
+    FUNCTION = "debug_anything"
+    OUTPUT_NODE = True
+    RETURN_TYPES = ("ANY",)
+    RETURN_NAMES = ("input",)
+
+    CATEGORY = "Eden 🌱/debug"
+
+    def debug_anything(self, input):
+        print("\n=== Eden Debug Anything ===")
+        
+        # Handle None case
+        if input is None:
+            print("Input is None")
+            return input
+            
+        # Get input type
+        input_type = type(input)
+        print(f"Type: {input_type.__name__}")
+        
+        # Handle dictionaries
+        if isinstance(input, dict):
+            print("Dictionary content:")
+            for key, value in input.items():
+                value_type = type(value).__name__
+                value_info = ""
+                
+                # Add shape for tensors
+                if isinstance(value, torch.Tensor):
+                    value_info = f" shape={value.shape}, dtype={value.dtype}"
+                # Basic info for lists/tuples
+                elif isinstance(value, (list, tuple)):
+                    value_info = f" length={len(value)}"
+                # Special handling for strings
+                elif isinstance(value, str):
+                    preview = value[:50] + "..." if len(value) > 50 else value
+                    value_info = f" value=\"{preview}\""
+                
+                print(f"  {key}: {value_type}{value_info}")
+        
+        # Handle lists and tuples
+        elif isinstance(input, (list, tuple)):
+            print(f"{input_type.__name__} content (length={len(input)}):")
+            if len(input) > 0:
+                # Print type of first element
+                first_type = type(input[0]).__name__
+                print(f"  First element type: {first_type}")
+                
+                # Check if all elements are same type
+                same_type = all(isinstance(x, type(input[0])) for x in input)
+                print(f"  All same type: {same_type}")
+                
+                # Show first few elements
+                max_preview = min(5, len(input))
+                for i in range(max_preview):
+                    item = input[i]
+                    item_repr = str(item)
+                    if len(item_repr) > 50:
+                        item_repr = item_repr[:50] + "..."
+                    print(f"  [{i}]: {item_repr}")
+                
+                if len(input) > max_preview:
+                    print(f"  ... and {len(input) - max_preview} more elements")
+        
+        # Handle tensors
+        elif isinstance(input, torch.Tensor):
+            print(f"Tensor information:")
+            print(f"  Shape: {input.shape}")
+            print(f"  Dtype: {input.dtype}")
+            print(f"  Device: {input.device}")
+            
+            # Stats for numeric tensors
+            if torch.is_floating_point(input) or torch.is_complex(input) or input.dtype in [torch.int32, torch.int64]:
+                try:
+                    print(f"  Min: {input.min().item()}")
+                    print(f"  Max: {input.max().item()}")
+                    print(f"  Mean: {input.mean().item()}")
+                    print(f"  Std: {input.std().item()}")
+                    # Show non-zero elements
+                    non_zero = torch.count_nonzero(input).item()
+                    total = input.numel()
+                    print(f"  Non-zero elements: {non_zero}/{total} ({non_zero/total:.2%})")
+                except Exception as e:
+                    print(f"  Stats calculation error: {str(e)}")
+            
+            # Sample values for small tensors
+            if input.numel() < 100:
+                print(f"  Values: {input.tolist()}")
+            else:
+                flat = input.flatten()
+                sample_idx = torch.linspace(0, flat.numel()-1, 5).long()
+                samples = flat[sample_idx].tolist()
+                print(f"  Sample values: {samples}")
+        
+        # Handle strings
+        elif isinstance(input, str):
+            print(f"String content (length={len(input)}):")
+            if len(input) > 200:
+                print(f"  Preview: \"{input[:200]}...\"")
+            else:
+                print(f"  Full string: \"{input}\"")
+                
+            # Check if it looks like a file path
+            if os.path.sep in input:
+                print(f"  Might be a file path. Exists: {os.path.exists(input)}")
+                
+            # Check if it looks like JSON
+            if input.strip().startswith('{') and input.strip().endswith('}'):
+                print("  Might be JSON")
+                
+            # Check if it contains newlines
+            newline_count = input.count('\n')  # Use raw string to avoid the issue
+            print(f"  Contains {newline_count} newlines")
+        
+        # Handle numbers
+        elif isinstance(input, (int, float)):
+            print(f"Numeric value: {input}")
+            if isinstance(input, float):
+                print(f"  As fraction: {input.as_integer_ratio()}")
+        
+        # Handle objects with special attributes
+        else:
+            # Try common attributes
+            common_attrs = ['shape', 'size', 'dtype', 'name', 'mode', 'filename', 'metadata']
+            for attr in common_attrs:
+                if hasattr(input, attr):
+                    try:
+                        value = getattr(input, attr)
+                        print(f"  {attr}: {value}")
+                    except:
+                        pass
+            
+            # Try dir() for all public attributes
+            attrs = [a for a in dir(input) if not a.startswith('_') and not callable(getattr(input, a, None))]
+            if attrs and len(attrs) < 15:  # Only show if not too many
+                print("  Public attributes:")
+                for attr in attrs[:10]:  # Limit to first 10
+                    try:
+                        value = getattr(input, attr)
+                        value_str = str(value)
+                        if len(value_str) > 50:
+                            value_str = value_str[:50] + "..."
+                        print(f"    {attr}: {value_str}")
+                    except:
+                        print(f"    {attr}: <error getting value>")
+                        
+                if len(attrs) > 10:
+                    print(f"    ... and {len(attrs) - 10} more attributes")
+        
+        print("===========================\n")
+        return (input, )
+
+class Eden_Regex_Replace:
+    """Node that performs regex-based string replacement operations"""
+    
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "source_string": ("STRING", {"multiline": True, "default": ""}),
+                "regex_pattern": ("STRING", {"default": ""}),
+                "replacement": ("STRING", {"default": ""}),
+                "max_n_replacements": ("INT", {"default": -1, "min": -1, "max": 1000000, "step": 1}),
+                "case_sensitive": ("BOOLEAN", {"default": True}),
+            }
+        }
+
+    FUNCTION = "regex_replace"
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("result_string",)
+
+    CATEGORY = "Eden 🌱/text"
+
+    def regex_replace(self, source_string, regex_pattern, replacement="", max_n_replacements=-1, case_sensitive=True):
+        """
+        Performs regex-based string replacement
+        
+        Args:
+            source_string: The input text to process
+            regex_pattern: The regex pattern to search for
+            replacement: The replacement text (can include backreferences like \1, \2, etc.)
+            max_n_replacements: Maximum number of replacements to make (-1 = all)
+            case_sensitive: Whether the pattern matching should be case-sensitive
+            
+        Returns:
+            The resulting string after replacement
+        """
+        # Handle empty or None inputs
+        if not source_string or not regex_pattern:
+            return source_string
+            
+        try:
+            # Set regex flags
+            flags = 0 if case_sensitive else re.IGNORECASE
+            
+            # Convert -1 to 0 for re.sub since it uses 0 to replace all instances
+            count = 0 if max_n_replacements == -1 else max_n_replacements
+            
+            # Perform the replacement
+            result = re.sub(
+                pattern=regex_pattern,
+                repl=replacement,
+                string=source_string,
+                count=count,
+                flags=flags
+            )
+            
+            return (result, )
+            
+        except Exception as e:
+            # Return original string with error indication if the regex is invalid
+            return f"REGEX ERROR: {str(e)}\nOriginal: {source_string}"
 
 class Eden_FloatToInt:
     @classmethod
@@ -81,13 +312,6 @@ class Eden_Seed:
     def output(self, seed):
         seed_string = str(seed)
         return (seed, seed_string,)
-    
-# wildcard trick is taken from pythongossss's
-class AnyType(str):
-    def __ne__(self, __value: object) -> bool:
-        return False
-
-any_typ = AnyType("*")
 
 class Eden_Math:
     """Node to evaluate a simple math expression string with variables a, b, c"""

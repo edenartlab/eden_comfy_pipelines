@@ -33,7 +33,6 @@ NODE_CLASS_MAPPINGS = {
     "Eden_BoolBinaryOperation": Eden_BoolBinaryOperation,
     "Eden_String": Eden_String,
     "If ANY execute A else B": Eden_IfExecute,
-    "Eden_DebugPrint": Eden_DebugPrint,
     "MaskFromRGB_KMeans": MaskFromRGB_KMeans,
     "GetRandomFile": GetRandomFile,
     "Animation_RGB_Mask": Animation_RGB_Mask,
@@ -75,7 +74,9 @@ NODE_CLASS_MAPPINGS = {
     "SDTypeConverter": SDTypeConverter,
     "SDAnyConverter": SDAnyConverter,
     "Eden_FaceToMask": Eden_FaceToMask,
-    "Eden_ImageMaskComposite": Eden_ImageMaskComposite
+    "Eden_ImageMaskComposite": Eden_ImageMaskComposite,
+    "Eden_Regex_Replace": Eden_Regex_Replace,
+    "Eden_Debug_Anything": Eden_Debug_Anything
 }
 
 try:
