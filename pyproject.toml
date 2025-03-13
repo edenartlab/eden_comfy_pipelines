@@ -1,7 +1,7 @@
 [project]
 name = "eden_comfy_pipelines"
 description = "A collection of custom nodes and workflows for ComfyUI, developed by https://www.eden.art/"
-version = "1.2.1"
+version = "1.2.2"
 license = {file = "LICENSE"}
 dependencies = [
     clip-interrogator==0.6.0
