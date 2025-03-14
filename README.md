@@ -5,7 +5,7 @@
   <br>
 </div>
 
-This repository contains a comprehensive suite of specialized ComfyUI nodes designed to enhance our generative workflows. While some nodes may not be fully documented here yet, they are actively used in [our workflows repository](https://github.com/edenartlab/workflows) which powers many of the creative AI tools on **"https://www.eden.art/**
+This repository contains a comprehensive suite of specialized ComfyUI nodes designed to enhance our generative workflows. While some nodes may not be fully documented here yet, they are actively used in [our workflows repository](https://github.com/edenartlab/workflows) which powers many of the creative AI tools on **https://www.eden.art/**
 
 ## 🤝 Contributing
 
