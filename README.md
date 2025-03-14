@@ -91,6 +91,14 @@ https://github.com/edenartlab/workflows
 
 ---
 
+### Random Number Sampler
+<img src="assets/random_number.jpg" alt="Sample Uniform Random numbers" width="50%">
+
+**Sampling**
+- Visualizes the sampled number on top of the node using custom javascript
+
+---
+
 ### Enhanced SaveImage
 <img src="assets/SaveImage.png" alt="Save Image Node" width="50%">
 
