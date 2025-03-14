@@ -15,7 +15,7 @@ https://github.com/edenartlab/workflows
 ## 🌟 Featured Nodes
 
 ### GPT4 Node
-<img src="assets/eden_gpt4_node.jpg" alt="GPT4 Node" width="70%">
+<img src="assets/eden_gpt4_node.jpg" alt="GPT4 Node" width="50%">
 
 **Call GPT4 for Text Completion**
 - Versatile node that provides seamless integration with the OpenAI API
@@ -24,7 +24,7 @@ https://github.com/edenartlab/workflows
 ---
 
 ### GPT4 Vision Node
-<img src="assets/imagedescriptionnode.jpg" alt="GPT4 Vision Node" width="70%">
+<img src="assets/imagedescriptionnode.jpg" alt="GPT4 Vision Node" width="50%">
 
 **Image Captioning and Visual Understanding**
 - Interprets images and generates detailed, contextual descriptions
@@ -33,7 +33,7 @@ https://github.com/edenartlab/workflows
 ---
 
 ### Load Random Images
-<img src="assets/loadrandomimage.jpg" alt="LoadRandomImage Node" width="70%">
+<img src="assets/loadrandomimage.jpg" alt="LoadRandomImage Node" width="50%">
 
 **Dynamic Random Image Selection for Automated Workflows**
 - Queue your prompt multiple times to process different inputs through the same workflow
@@ -42,7 +42,7 @@ https://github.com/edenartlab/workflows
 ---
 
 ### Color Clustering Mask Generator
-<img src="assets/maskfromrgb_kmeans.jpg" alt="maskfromrgb_kmeans Node" width="70%">
+<img src="assets/maskfromrgb_kmeans.jpg" alt="maskfromrgb_kmeans Node" width="50%">
 
 **Generate Precise Masks Using Color Clustering**
 - Implements KMeans clustering algorithm to produce accurate segmentation masks
@@ -51,7 +51,7 @@ https://github.com/edenartlab/workflows
 ---
 
 ### DepthSlicer
-<img src="assets/depthslicer.jpg" alt="DepthSlicer Node" width="70%">
+<img src="assets/depthslicer.jpg" alt="DepthSlicer Node" width="50%">
 
 **Create Targeted Masks from Depth Maps**
 - Creates segmentation along the z-axis to produce specific "depth slices"
@@ -60,7 +60,7 @@ https://github.com/edenartlab/workflows
 ---
 
 ### 3D Parallax Zoom
-<img src="assets/parallaxzoom.jpg" alt="Parallax Zoom Node" width="70%">
+<img src="assets/parallaxzoom.jpg" alt="Parallax Zoom Node" width="50%">
 
 **Create Immersive Three-Dimensional Effects**
 - Uses depth map and image data to generate Deforum-style 3D-zoom parallax videos
@@ -69,7 +69,7 @@ https://github.com/edenartlab/workflows
 ---
 
 ### CLIP Interrogator
-<img src="assets/CLIP_interrogator.png" alt="CLIP Interrogator Node" width="70%">
+<img src="assets/CLIP_interrogator.png" alt="CLIP Interrogator Node" width="50%">
 
 **Extract Detailed Text Descriptions from Images**
 - Based on the [clip-interrogator](https://github.com/pharmapsychotic/clip-interrogator) project
@@ -82,7 +82,7 @@ https://github.com/edenartlab/workflows
 ---
 
 ### VAEDecode to Folder
-<img src="assets/VAEDecode_to_folder.png" alt="VAE Decode to Folder Node" width="70%">
+<img src="assets/VAEDecode_to_folder.png" alt="VAE Decode to Folder Node" width="50%">
 
 **Direct-to-Disk VAE Decoding**
 - Saves decoded images directly to a specified directory
@@ -92,7 +92,7 @@ https://github.com/edenartlab/workflows
 ---
 
 ### Enhanced SaveImage
-<img src="assets/SaveImage.png" alt="Save Image Node" width="70%">
+<img src="assets/SaveImage.png" alt="Save Image Node" width="50%">
 
 **Advanced Image Preservation Options**
 - Add timestamps to filenames for better organization
