@@ -165,4 +165,54 @@ class Eden_IfExecute:
         return (IF_TRUE if ANY else IF_FALSE,)
 
 
+import torch
+import random
 
+class Eden_RandomNumberSampler:
+    """Node that generates a random number from a uniform distribution with configurable min/max values"""
+    
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
+                "min_value": ("FLOAT", {"default": 0.00, "min": -1000.00, "max": 1000.00, "step": 0.01}),
+                "max_value": ("FLOAT", {"default": 1.00, "min": -1000.00, "max": 1000.00, "step": 0.01}),
+            }
+        }
+
+    FUNCTION = "sample_random_number"
+    RETURN_TYPES = ("INT", "FLOAT", "STRING")
+    RETURN_NAMES = ("sampled_int", "sampled_float", "sampled_string")
+    CATEGORY = "Eden 🌱/Logic"
+    DESCRIPTION = "Samples a random number from a uniform distribution between min_value and max_value"
+    OUTPUT_NODE = True  # Enable UI updates
+
+    def sample_random_number(self, seed, min_value, max_value):
+        # Set seeds for reproducibility
+        torch.manual_seed(seed)
+        random.seed(seed)
+        
+        # Ensure min_value is not greater than max_value
+        if min_value > max_value:
+            min_value, max_value = max_value, min_value
+        
+        # Generate random float between min and max
+        sampled_float = min_value + (max_value - min_value) * torch.rand(1).item()
+        
+        # Round to 2 decimal places for consistency
+        sampled_float = round(sampled_float, 2)
+        
+        # Convert to integer (rounded)
+        sampled_int = int(round(sampled_float))
+        
+        # Create string representation with 2 decimal places
+        sampled_string = f"{sampled_float:.2f}"
+        
+        # Return the sampled values along with special UI update
+        return {
+            "ui": {
+                "random_number": [f"{sampled_float:.2f}"]
+            }, 
+            "result": (sampled_int, sampled_float, sampled_string)
+        }

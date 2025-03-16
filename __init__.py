@@ -14,6 +14,8 @@ from ip_adapter_utils.moodmix_utils import *
 from video_utils.video_interpolation import VideoFrameSelector
 from general_utils import *
 
+WEB_DIRECTORY = "./js"
+
 NODE_CLASS_MAPPINGS = {
     "CLIP_Interrogator": CLIP_Interrogator,
     "Eden_IMG_padder": IMG_padder,
@@ -76,7 +78,14 @@ NODE_CLASS_MAPPINGS = {
     "Eden_FaceToMask": Eden_FaceToMask,
     "Eden_ImageMaskComposite": Eden_ImageMaskComposite,
     "Eden_Regex_Replace": Eden_Regex_Replace,
-    "Eden_Debug_Anything": Eden_Debug_Anything
+    "Eden_Debug_Anything": Eden_Debug_Anything,
+    "Eden_RandomNumberSampler": Eden_RandomNumberSampler,
+    "Eden_RandomFilepathSampler": Eden_RandomFilepathSampler
+}
+
+NODE_DISPLAY_NAME_MAPPINGS = {
+    "Eden_RandomNumberSampler": "Random Number Sampler 🎲",
+    "Eden_RandomFilepathSampler": "Random Filepath Sampler 🎲"
 }
 
 try:
