@@ -398,7 +398,8 @@ class MaskFromRGB_KMeans:
     def execute(self, image, n_color_clusters, clustering_resolution, feathering_fraction):
         # Assuming you have your batch of PyTorch image tensors called 'image_batch'
         # Shape of image_batch: [n, h, w, 3]
-        image = image.cuda()
+        device = image.device
+        image = image.to(device)
         lab_images = torch.stack([rgb_to_lab(img) for img in image])
         n, h, w, _ = lab_images.shape
 
@@ -439,7 +440,7 @@ class MaskFromRGB_KMeans:
                 masks[i, j] = (cluster_labels[i] == j).float()
 
         if feathering_fraction > 0:
-            masks = masks.to("cuda")
+            masks = masks.to(device)
             n_imgs, n_colors, h, w = masks.shape
             batch_size = n_imgs * n_colors
             masks = masks.view(batch_size, h, w)
