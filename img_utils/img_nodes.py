@@ -399,7 +399,7 @@ class MaskFromRGB_KMeans:
         # Assuming you have your batch of PyTorch image tensors called 'image_batch'
         # Shape of image_batch: [n, h, w, 3]
         device = image.device
-        image = image.to(device)
+        image = image.to('cuda')
         lab_images = torch.stack([rgb_to_lab(img) for img in image])
         n, h, w, _ = lab_images.shape
 
