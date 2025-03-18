@@ -38,7 +38,7 @@ class Eden_gpt4_node:
 
             if not client:
                 print("An OpenAI API key is required for GPT node, put a .env file with your key in the comfyui root directory!")
-                return "An OpenAI API key is required for GPT-4 Vision. Make sure to place a .env file in the root directory of eden_comfy_pipelines with your secret API key. Make sure to never share your API key with anyone."
+                return ("An OpenAI API key is required for GPT-4 Vision. Make sure to place a .env file in the root directory of eden_comfy_pipelines with your secret API key. Make sure to never share your API key with anyone.", )
 
             response = client.chat.completions.create(
                     model=model,
