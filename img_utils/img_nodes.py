@@ -357,6 +357,17 @@ class VAEDecode_to_folder:
 
         return (output_folder, )
 
+
+
+
+from sklearn.cluster import KMeans
+from .img_utils import lab_to_rgb, rgb_to_lab
+import numpy as np
+from PIL.PngImagePlugin import PngInfo
+import json
+import torch
+import torch.nn.functional as F
+
 def gaussian_kernel_2d(kernel_size, sigma=None):
     """Create a 2D Gaussian kernel with proper size handling."""
     # Ensure kernel_size is odd
@@ -374,30 +385,6 @@ def gaussian_kernel_2d(kernel_size, sigma=None):
     # Create 2D kernel
     kernel_2d = torch.outer(kernel_1d, kernel_1d)
     kernel_2d = kernel_2d / kernel_2d.sum()  # Ensure normalization
-    kernel_2d = kernel_2d.view(1, 1, kernel_size, kernel_size)
-    
-    return kernel_2d
-
-
-from sklearn.cluster import KMeans
-from .img_utils import lab_to_rgb, rgb_to_lab
-import numpy as np
-from PIL.PngImagePlugin import PngInfo
-import json
-import torch
-import torch.nn.functional as F
-
-def gaussian_kernel_2d(kernel_size, sigma=None):
-    """Create a 2D Gaussian kernel."""
-    if sigma is None:
-        sigma = 0.3 * ((kernel_size - 1) * 0.5 - 1) + 0.8
-    
-    # Create 1D kernels
-    kernel_1d = torch.exp(-torch.arange(-(kernel_size//2), kernel_size//2+1)**2 / (2 * sigma**2))
-    kernel_1d = kernel_1d / kernel_1d.sum()
-    
-    # Create 2D kernel
-    kernel_2d = torch.outer(kernel_1d, kernel_1d)
     kernel_2d = kernel_2d.view(1, 1, kernel_size, kernel_size)
     
     return kernel_2d
