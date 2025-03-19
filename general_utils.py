@@ -113,11 +113,11 @@ class Eden_Debug_Anything:
                     print(f"  Stats calculation error: {str(e)}")
             
             # Sample values for small tensors
-            if input.numel() < 100:
+            if input.numel() < 20:
                 print(f"  Values: {input.tolist()}")
             else:
                 flat = input.flatten()
-                sample_idx = torch.linspace(0, flat.numel()-1, 5).long()
+                sample_idx = torch.linspace(0, flat.numel()-2, 5).long()
                 samples = flat[sample_idx].tolist()
                 print(f"  Sample values: {samples}")
         

@@ -478,6 +478,501 @@ class MaskFromRGB_KMeans:
 
         return masks[:, 0], masks[:, 1], masks[:, 2], masks[:, 3], masks[:, 4], masks[:, 5], masks[:, 6], masks[:, 7]
 
+
+class TemporallyConsistentSegmentation:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "image": ("IMAGE", ),
+                "n_clusters": ("INT", {"default": 6, "min": 2, "max": 10}),
+                "initial_resolution": ("INT", {"default": 256, "min": 32, "max": 1024}),
+                "balance_strength": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 1.0, "step": 0.01}),
+                "spatial_weight": ("FLOAT", {"default": 0.2, "min": 0.0, "max": 1.0, "step": 0.01}),
+                "superpixel_compactness": ("FLOAT", {"default": 10.0, "min": 1.0, "max": 100.0, "step": 0.5}),
+                "feathering_amount": ("FLOAT", {"default": 0.05, "min": 0.0, "max": 0.5, "step": 0.01}),
+                "processing_batch_size": ("INT", {"default": 8, "min": 1, "max": 32}),
+                "reference_frame_index": ("INT", {"default": 0, "min": 0, "max": 1000}),
+                "temporal_smoothing": ("FLOAT", {"default": 0.7, "min": 0.0, "max": 1.0, "step": 0.01}),
+            }
+        }
+
+    RETURN_TYPES = tuple(["MASK"] * 10)  # Support up to 10 masks
+    RETURN_NAMES = tuple([str(i+1) for i in range(10)])  # Names 1-10
+    FUNCTION = "execute"
+    CATEGORY = "Eden 🌱"
+
+    def create_gaussian_kernel(self, kernel_size):
+        """Create a 2D Gaussian kernel."""
+        if kernel_size % 2 == 0:
+            kernel_size += 1  # Ensure odd kernel size
+            
+        # Create 1D Gaussian kernel
+        sigma = kernel_size / 6.0
+        x = torch.arange(-(kernel_size // 2), kernel_size // 2 + 1, dtype=torch.float32)
+        kernel_1d = torch.exp(-(x ** 2) / (2 * sigma ** 2))
+        kernel_1d = kernel_1d / kernel_1d.sum()
+        
+        # Create 2D Gaussian kernel
+        kernel_2d = torch.outer(kernel_1d, kernel_1d)
+        return kernel_2d.view(1, 1, kernel_size, kernel_size)
+
+    def apply_feathering(self, masks, feathering_size, batch_size=4):
+        """Apply Gaussian feathering to masks efficiently with batching."""
+        if feathering_size <= 1:
+            return masks
+            
+        kernel = self.create_gaussian_kernel(feathering_size).to(masks.device)
+        pad_size = feathering_size // 2
+        
+        # Process in smaller batches to avoid memory issues
+        result = torch.zeros_like(masks)
+        
+        # Calculate how many masks in total we need to process
+        n, k, h, w = masks.shape
+        total_masks = n * k
+        
+        # Process in small batches
+        for i in range(0, total_masks, batch_size):
+            batch_end = min(i + batch_size, total_masks)
+            # Reshape to get a batch of individual masks
+            batch_masks = masks.view(-1, 1, h, w)[i:batch_end]
+            
+            # Apply padding
+            padded_masks = F.pad(batch_masks, (pad_size, pad_size, pad_size, pad_size), mode='reflect')
+            
+            # Apply convolution
+            feathered_masks = F.conv2d(padded_masks, kernel, padding=0)
+            
+            # Store result
+            result.view(-1, 1, h, w)[i:batch_end] = feathered_masks
+            
+        return result.view(n, k, h, w)
+
+    def rgb_to_lab_numpy(self, rgb_image):
+        """Convert RGB image to LAB colorspace using OpenCV (numpy version)"""
+        # Make sure RGB is in 0-1 range
+        if rgb_image.max() > 1.0:
+            rgb_image = rgb_image / 255.0
+            
+        # Convert to BGR for OpenCV
+        bgr_image = rgb_image[..., ::-1]  # Reverse the channel order
+        
+        # Convert to LAB
+        lab_image = cv2.cvtColor(bgr_image.astype(np.float32), cv2.COLOR_BGR2LAB)
+        
+        return lab_image
+
+    def balance_clusters(self, segments, n_clusters, balance_strength):
+        """
+        Redistribute segments to create more balanced clusters.
+        
+        Args:
+            segments: Array of segment labels
+            n_clusters: Number of desired clusters
+            balance_strength: How strongly to enforce balanced clusters (0-1)
+            
+        Returns:
+            Balanced segment labels
+        """
+        # Count pixels per cluster
+        unique_labels, counts = np.unique(segments, return_counts=True)
+        total_pixels = segments.size
+        target_size = total_pixels / n_clusters
+        
+        # Skip balancing if strength is 0
+        if balance_strength == 0:
+            return segments
+        
+        # Get properties of each region
+        props = regionprops(segments.astype(np.int32) + 1)  # +1 because regionprops requires labels > 0
+        
+        # Identify clusters that are too large or too small
+        cluster_sizes = {label: 0 for label in range(n_clusters)}
+        for region in props:
+            label = region.label - 1  # Convert back to 0-based indexing
+            if label < n_clusters:  # Safety check
+                cluster_sizes[label] += region.area
+        
+        # Sort clusters by size
+        sorted_clusters = sorted(cluster_sizes.items(), key=lambda x: x[1])
+        
+        # Identify too small and too large clusters
+        small_clusters = [label for label, size in sorted_clusters if size < target_size]
+        large_clusters = [label for label, size in sorted_clusters if size > target_size]
+        
+        # Apply balancing based on strength parameter
+        if not small_clusters or not large_clusters:
+            return segments
+            
+        balanced_segments = segments.copy()
+        
+        # Limit the number of regions to process for efficiency
+        max_regions_to_process = 50  # Adjust based on performance needs
+        regions_to_process = [r for r in props if r.label - 1 in large_clusters]
+        
+        # Sort regions by size (largest first) and limit
+        regions_to_process.sort(key=lambda r: r.area, reverse=True)
+        regions_to_process = regions_to_process[:max_regions_to_process]
+        
+        # For each region from large clusters, try to donate to small neighbors
+        for region in regions_to_process:
+            label = region.label - 1
+            
+            # Skip if no longer in large_clusters (might have changed)
+            if label not in large_clusters:
+                continue
+                
+            # Get region pixels
+            y, x = region.coords[:, 0], region.coords[:, 1]
+            mask = np.zeros_like(segments, dtype=bool)
+            mask[y, x] = True
+            
+            # Faster boundary finding using erosion
+            eroded = cv2.erode(mask.astype(np.uint8), np.ones((3, 3), np.uint8), iterations=1)
+            boundary = mask & ~eroded.astype(bool)
+            
+            # Get neighboring labels on boundary
+            boundary_indices = np.where(boundary)
+            if len(boundary_indices[0]) == 0:
+                continue
+                
+            neighbor_labels = segments[boundary_indices]
+            unique_neighbors = np.unique(neighbor_labels)
+            
+            # Find small neighbors
+            small_neighbors = [n for n in unique_neighbors if n in small_clusters]
+            
+            if not small_neighbors:
+                continue
+                
+            # Choose smallest neighbor to donate to
+            smallest_neighbor = min(small_neighbors, 
+                                   key=lambda n: cluster_sizes[n])
+            
+            # Calculate how many pixels to donate based on balance_strength
+            cluster_diff = target_size - cluster_sizes[smallest_neighbor]
+            donation_size = int(cluster_diff * balance_strength)
+            max_donation = int(cluster_sizes[label] * balance_strength * 0.5)
+            donation_size = min(donation_size, max_donation)
+            
+            if donation_size <= 0:
+                continue
+                
+            # Faster distance calculation using distance transform
+            distance_map = cv2.distanceTransform(mask.astype(np.uint8), cv2.DIST_L2, 5)
+            
+            # Only consider boundary pixels for donation (much faster)
+            # Create a dilated boundary mask
+            dilated_boundary = cv2.dilate(boundary.astype(np.uint8), np.ones((5, 5), np.uint8), iterations=1)
+            dilated_boundary = dilated_boundary & mask.astype(np.uint8)
+            
+            # Get coordinates of potential donation pixels
+            y_donate, x_donate = np.where(dilated_boundary)
+            if len(y_donate) == 0:
+                continue
+                
+            # Get distances for these pixels
+            distances = distance_map[y_donate, x_donate]
+            
+            # Sort by distance (closest to boundary first)
+            sorted_indices = np.argsort(distances)
+            
+            # Limit donation size to available pixels
+            pixels_to_change = min(donation_size, len(sorted_indices))
+            
+            # Reassign pixels
+            for i in range(pixels_to_change):
+                idx = sorted_indices[i]
+                balanced_segments[y_donate[idx], x_donate[idx]] = smallest_neighbor
+                
+            # Update cluster sizes
+            cluster_sizes[label] -= pixels_to_change
+            cluster_sizes[smallest_neighbor] += pixels_to_change
+            
+        return balanced_segments
+
+    def process_single_image(self, img, n_clusters, target_height, target_width, 
+                            spatial_weight, superpixel_compactness, balance_strength):
+        """Process a single image to create balanced cluster masks"""
+        # Resize for faster processing
+        img_small = cv2.resize(img, (target_width, target_height), 
+                              interpolation=cv2.INTER_AREA)
+        
+        # Convert to LAB color space
+        img_lab = self.rgb_to_lab_numpy(img_small)
+        
+        # Calculate number of superpixels
+        n_superpixels = min(n_clusters * 20, target_height * target_width // 100)
+        
+        # Generate superpixels using SLIC
+        try:
+            superpixels = slic(img_lab, n_segments=n_superpixels, compactness=superpixel_compactness,
+                              start_label=0, slic_zero=False)
+        except Exception as e:
+            # Fallback to simple K-means
+            pixels = img_lab.reshape(-1, 3)
+            kmeans = MiniBatchKMeans(n_clusters=n_clusters, random_state=42, batch_size=1024)
+            labels = kmeans.fit_predict(pixels)
+            return labels.reshape(img_small.shape[:2])
+        
+        # Extract features for each superpixel
+        region_features = []
+        region_labels = []
+        
+        for region in regionprops(superpixels):
+            coords = region.coords
+            if len(coords) == 0:
+                continue
+                
+            region_lab_values = img_lab[coords[:, 0], coords[:, 1]]
+            
+            # Calculate mean color
+            mean_color = np.mean(region_lab_values, axis=0)
+            
+            # Calculate position (normalized)
+            mean_position = np.mean(coords, axis=0) / np.array([target_height, target_width])
+            
+            # Combine features with spatial weight
+            feature_vector = np.concatenate([
+                mean_color, 
+                mean_position * spatial_weight * 100
+            ])
+            
+            region_features.append(feature_vector)
+            region_labels.append(region.label)
+        
+        # Cluster the superpixels
+        if len(region_features) < n_clusters:
+            kmeans = MiniBatchKMeans(n_clusters=len(region_features), random_state=42)
+        else:
+            kmeans = MiniBatchKMeans(n_clusters=n_clusters, random_state=42, batch_size=1024)
+            
+        # Handle empty region_features
+        if len(region_features) == 0:
+            # Fallback to simple K-means
+            pixels = img_lab.reshape(-1, 3)
+            kmeans = MiniBatchKMeans(n_clusters=n_clusters, random_state=42, batch_size=1024)
+            labels = kmeans.fit_predict(pixels)
+            return labels.reshape(img_small.shape[:2]), kmeans
+        
+        cluster_labels = kmeans.fit_predict(np.array(region_features))
+        
+        # Map superpixels to clusters
+        cluster_map = np.zeros_like(superpixels)
+        for idx, label in enumerate(region_labels):
+            cluster_map[superpixels == label] = cluster_labels[idx]
+        
+        # Apply balance correction if needed
+        if balance_strength > 0:
+            try:
+                cluster_map = self.balance_clusters(cluster_map, 
+                                                  min(n_clusters, len(np.unique(cluster_map))),
+                                                  balance_strength)
+            except Exception as e:
+                print(f"Balancing error (non-critical): {e}")
+        
+        return cluster_map, kmeans
+        
+    def extract_features_from_image(self, img, target_height, target_width, spatial_weight):
+        """Extract features from an image for consistent clustering"""
+        # Resize for faster processing
+        img_small = cv2.resize(img, (target_width, target_height), 
+                              interpolation=cv2.INTER_AREA)
+        
+        # Convert to LAB color space
+        img_lab = self.rgb_to_lab_numpy(img_small)
+        
+        # Calculate number of feature points to sample
+        n_samples = min(1000, target_height * target_width // 16)
+        
+        # Randomly sample pixels for feature extraction
+        h, w = img_small.shape[:2]
+        coords_y = np.random.randint(0, h, n_samples)
+        coords_x = np.random.randint(0, w, n_samples)
+        
+        # Extract color features
+        sampled_colors = img_lab[coords_y, coords_x]
+        
+        # Add spatial features
+        norm_coords = np.column_stack([
+            coords_y / h,
+            coords_x / w
+        ]) * spatial_weight * 100
+        
+        # Combine features
+        features = np.column_stack([sampled_colors, norm_coords])
+        
+        return features
+    
+    def segment_with_reference_kmeans(self, img, ref_kmeans, target_height, target_width, 
+                                     superpixel_compactness, balance_strength, temporal_smoothing=0.7):
+        """Segment an image using a reference k-means model from another frame"""
+        # Resize for faster processing
+        img_small = cv2.resize(img, (target_width, target_height), 
+                              interpolation=cv2.INTER_AREA)
+        
+        # Convert to LAB color space
+        img_lab = self.rgb_to_lab_numpy(img_small)
+        
+        # Calculate number of superpixels (same as in process_single_image)
+        n_clusters = ref_kmeans.n_clusters
+        n_superpixels = min(n_clusters * 20, target_height * target_width // 100)
+        
+        # Generate superpixels
+        try:
+            superpixels = slic(img_lab, n_segments=n_superpixels, compactness=superpixel_compactness,
+                              start_label=0, slic_zero=False)
+        except Exception as e:
+            # Fallback to direct clustering with the reference model
+            pixels = img_lab.reshape(-1, 3)
+            labels = ref_kmeans.predict(pixels)
+            return labels.reshape(img_small.shape[:2])
+        
+        # Extract features for each superpixel (same as in process_single_image)
+        region_features = []
+        region_labels = []
+        
+        for region in regionprops(superpixels):
+            coords = region.coords
+            if len(coords) == 0:
+                continue
+                
+            region_lab_values = img_lab[coords[:, 0], coords[:, 1]]
+            
+            # Calculate mean color
+            mean_color = np.mean(region_lab_values, axis=0)
+            
+            # Calculate position (normalized)
+            mean_position = np.mean(coords, axis=0) / np.array([target_height, target_width])
+            
+            # Combine features with the same spatial weight used for the reference
+            feature_vector = np.concatenate([
+                mean_color, 
+                mean_position * 100 * temporal_smoothing  # Reduce spatial influence for temporal consistency
+            ])
+            
+            region_features.append(feature_vector)
+            region_labels.append(region.label)
+            
+        # Handle empty region_features
+        if len(region_features) == 0:
+            # Fallback to direct clustering with the reference model
+            pixels = img_lab.reshape(-1, 3)
+            labels = ref_kmeans.predict(pixels)
+            return labels.reshape(img_small.shape[:2])
+        
+        # Use the reference k-means to predict cluster labels
+        region_features = np.array(region_features)
+        cluster_labels = ref_kmeans.predict(region_features)
+        
+        # Map superpixels to clusters
+        cluster_map = np.zeros_like(superpixels)
+        for idx, label in enumerate(region_labels):
+            cluster_map[superpixels == label] = cluster_labels[idx]
+        
+        # Apply balance correction if needed
+        if balance_strength > 0:
+            try:
+                cluster_map = self.balance_clusters(
+                    cluster_map, 
+                    min(n_clusters, len(np.unique(cluster_map))),
+                    balance_strength
+                )
+            except Exception as e:
+                print(f"Balancing error (non-critical): {e}")
+        
+        return cluster_map
+
+    @torch.no_grad()
+    def execute(self, image, n_clusters, initial_resolution, balance_strength, 
+                spatial_weight, superpixel_compactness, feathering_amount,
+                processing_batch_size=8, reference_frame_index=0, temporal_smoothing=0.7):
+        device = image.device
+        n_images = image.shape[0]
+        orig_height, orig_width = image.shape[1], image.shape[2]
+        
+        # Ensure reference frame index is valid
+        reference_frame_index = min(reference_frame_index, n_images - 1)
+        
+        # Calculate target resolution maintaining aspect ratio
+        aspect_ratio = orig_width / orig_height
+        target_height = initial_resolution
+        target_width = int(initial_resolution * aspect_ratio)
+        
+        # Initialize output masks tensor
+        all_masks = torch.zeros((n_images, n_clusters, orig_height, orig_width), 
+                               device=device)
+        
+        print(f"Processing reference frame {reference_frame_index + 1}...")
+        
+        # Process reference frame first to establish clustering
+        ref_img = image[reference_frame_index].cpu().numpy()
+        cluster_map_ref, ref_kmeans = self.process_single_image(
+            ref_img, n_clusters, target_height, target_width,
+            spatial_weight, superpixel_compactness, balance_strength
+        )
+        
+        # Create masks for the reference frame
+        for cluster_idx in range(min(n_clusters, len(np.unique(cluster_map_ref)))):
+            mask = (cluster_map_ref == cluster_idx).astype(np.float32)
+            
+            # Resize mask to original dimensions
+            mask_full = cv2.resize(mask, (orig_width, orig_height), 
+                                  interpolation=cv2.INTER_LINEAR)
+            
+            # Add to output tensor
+            all_masks[reference_frame_index, cluster_idx] = torch.tensor(mask_full, device=device)
+        
+        # Process all other frames using the reference clustering
+        for img_idx in range(n_images):
+            if img_idx == reference_frame_index:
+                continue  # Skip reference frame, already processed
+                
+            if img_idx % processing_batch_size == 0:
+                print(f"Processing frame {img_idx + 1} of {n_images}...")
+                
+            # Get image and move to CPU
+            img = image[img_idx].cpu().numpy()
+            
+            # Process the image using the reference k-means model
+            cluster_map = self.segment_with_reference_kmeans(
+                img, ref_kmeans, target_height, target_width,
+                superpixel_compactness, balance_strength, temporal_smoothing
+            )
+            
+            # Create masks for each cluster
+            for cluster_idx in range(min(n_clusters, len(np.unique(cluster_map)))):
+                mask = (cluster_map == cluster_idx).astype(np.float32)
+                
+                # Resize mask to original dimensions
+                mask_full = cv2.resize(mask, (orig_width, orig_height), 
+                                      interpolation=cv2.INTER_LINEAR)
+                
+                # Add to output tensor
+                all_masks[img_idx, cluster_idx] = torch.tensor(mask_full, device=device)
+        
+        # Apply feathering in batches if requested
+        if feathering_amount > 0:
+            feather_size = int(feathering_amount * (orig_height + orig_width) / 2)
+            feather_size = max(3, feather_size if feather_size % 2 else feather_size + 1)
+            print(f"Applying feathering with kernel size {feather_size}...")
+            
+            # Use optimized batched feathering
+            all_masks = self.apply_feathering(all_masks, feather_size, 
+                                             batch_size=processing_batch_size)
+        
+        # Fill remaining clusters with empty masks if needed
+        if n_clusters < 10:
+            empty_masks = torch.zeros((n_images, 10 - n_clusters, orig_height, orig_width), 
+                                     device=device)
+            all_masks = torch.cat([all_masks, empty_masks], dim=1)
+        
+        # Return individual masks
+        print("Temporally consistent segmentation complete!")
+        return tuple(all_masks[:, i].cpu() for i in range(10))
+
+   
 class Eden_MaskCombiner:
     @classmethod
     def INPUT_TYPES(s):
