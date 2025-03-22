@@ -1,11 +1,26 @@
-import sys, os, time, math, re
+import sys, os, time, math, re, subprocess
 import hashlib
 import folder_paths
 from statistics import mean
 import torch
 from typing import Any, Mapping
 import comfy.samplers
-import re
+import random
+from PIL import Image, ImageOps, ImageSequence
+from io import BytesIO
+from fractions import Fraction
+import numpy as np
+import cv2
+import glob
+import random
+import logging
+import zipfile
+import tarfile
+import py7zr
+from typing import Union, List, Tuple, Optional, Dict
+import shutil
+import tempfile
+import folder_paths
 
 # wildcard trick is taken from pythongossss's
 class AnyType(str):
@@ -116,10 +131,13 @@ class Eden_Debug_Anything:
             if input.numel() < 20:
                 print(f"  Values: {input.tolist()}")
             else:
-                flat = input.flatten()
-                sample_idx = torch.linspace(0, flat.numel()-2, 5).long()
-                samples = flat[sample_idx].tolist()
-                print(f"  Sample values: {samples}")
+                try:
+                    flat = input.flatten()
+                    sample_idx = torch.linspace(0, flat.numel()-2, 5).long()
+                    samples = flat[sample_idx].tolist()
+                    print(f"  Sample values: {samples}")
+                except Exception as e:
+                    pass
         
         # Handle strings
         elif isinstance(input, str):
@@ -264,7 +282,6 @@ class Eden_IntToFloat:
     def op(self, a: int) -> tuple[float]:
         return (float(a),)
 
-
 class Eden_StringHash:
     @classmethod
     def INPUT_TYPES(s):
@@ -298,7 +315,6 @@ class Eden_StringHash:
         
         return (hash_int, hash_string,)
     
-
 class Eden_Seed:
     @classmethod
     def INPUT_TYPES(s):
@@ -553,9 +569,6 @@ class IP_Adapter_Settings_Distribution:
     def set(self, weight, weight_type):
         return (weight, weight_type)
     
-import random
-import torch
-
 class Eden_StringReplace:
     @classmethod
     def INPUT_TYPES(cls):
@@ -593,7 +606,6 @@ class Eden_randbool:
         torch.manual_seed(seed)
         return (torch.rand(1).item() < probability,)
     
-
 class Eden_RandomPromptFromFile:
     @classmethod
     def INPUT_TYPES(cls):
@@ -632,12 +644,6 @@ class Eden_RandomPromptFromFile:
             raise FileNotFoundError(f"Prompt file not found: {file_path}")
         except Exception as e:
             raise Exception(f"Error reading prompt file: {str(e)}")
-
-import os
-import random
-import torch
-from typing import List, Tuple
-
 
 class Eden_RandomFilepathSampler:
     """Node that samples a random filepath from a directory with filtering options"""
@@ -861,7 +867,6 @@ class SDTypeConverter:
             scheduler,
         )
 
-
 class SDAnyConverter:
     @classmethod
     def INPUT_TYPES(s):
@@ -882,3 +887,461 @@ class SDAnyConverter:
 
     def convert_any(self, any_type_input: str = ""):
         return (any_type_input,)
+
+# Initialize logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+ffmpeg_path = shutil.which("ffmpeg")
+if not ffmpeg_path:
+    ffmpeg_path = "ffmpeg"  # Fall back to just the command name, assuming it's in PATH
+
+def pil_to_tensor(image: Image.Image) -> torch.Tensor:
+    """Convert PIL image to PyTorch tensor in ComfyUI format (B,H,W,C)."""
+    if image.mode != 'RGB':
+        image = image.convert('RGB')
+    
+    # Convert to numpy array and normalize to 0-1 range
+    np_image = np.array(image).astype(np.float32) / 255.0
+    
+    # Convert to tensor with batch dimension (B,H,W,C)
+    # PIL/numpy arrays are already in (H,W,C) format, just add batch dimension
+    tensor = torch.from_numpy(np_image).unsqueeze(0)
+    
+    return tensor
+
+def resize_image_max_size(image: Image.Image, max_res: int) -> Image.Image:
+    """Resize image if its width or height exceeds max_res, preserving aspect ratio."""
+    if max_res <= 0:
+        return image
+    
+    w, h = image.size
+    if w <= max_res and h <= max_res:
+        return image
+    
+    # Calculate new dimensions preserving aspect ratio
+    if w > h:
+        new_w = max_res
+        new_h = int(h * (max_res / w))
+    else:
+        new_h = max_res
+        new_w = int(w * (max_res / h))
+    
+    # Resize using Lanczos resampling for quality
+    return image.resize((new_w, new_h), Image.Resampling.LANCZOS)
+
+def load_path(path: str) -> Union[str, List[str]]:
+    """
+    Resolves a path that can be either:
+    - An absolute path to a file or directory
+    - A relative path from input directory to a file or directory
+    - A path with [input]/[output]/[temp] annotations
+    - A wildcard pattern for image files
+    
+    Returns either a single path string or list of paths if wildcards matched multiple images
+    """
+    path = path.strip('"').strip("'").replace("\\", "/")
+    
+    # Handle annotated paths
+    if "[" in path:
+        name, base_dir = folder_paths.annotated_filepath(path)
+        if base_dir is not None:
+            full_path = os.path.join(base_dir, name)
+            # Check for wildcards in image patterns
+            if ('*' in name or '?' in name) and any(name.lower().endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.webp', '.gif']):
+                matches = glob.glob(full_path, recursive=True)
+                if matches:
+                    return [os.path.abspath(p) for p in matches]
+            elif os.path.exists(full_path):
+                return os.path.abspath(full_path)
+    
+    # Try as absolute path with wildcards for images
+    if ('*' in path or '?' in path) and any(path.lower().endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.webp', '.gif']):
+        matches = glob.glob(path, recursive=True)
+        if matches:
+            return [os.path.abspath(p) for p in matches]
+    elif os.path.exists(path):
+        return os.path.abspath(path)
+        
+    # Try in input directory
+    input_path = os.path.join(folder_paths.get_input_directory(), path)
+    if ('*' in path or '?' in path) and any(path.lower().endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.webp', '.gif']):
+        matches = glob.glob(input_path, recursive=True)
+        if matches:
+            return [os.path.abspath(p) for p in matches]
+    elif os.path.exists(input_path):
+        return os.path.abspath(input_path)
+            
+    raise FileNotFoundError(f"Could not find file or directory at {path} or {input_path}")
+
+def extract_frames_from_video(video_path: str, force_rate: float = 0.0, 
+                              image_load_cap: int = 0, max_res: int = 0):
+    """
+    Extract frames from a video file using only OpenCV (no ffprobe).
+    """
+    # Open video file with OpenCV
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        raise ValueError(f"Cannot open video file: {video_path}")
+    
+    # Get video properties directly from OpenCV
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    
+    # Calculate frame interval for force_rate
+    frame_interval = 1
+    if force_rate > 0 and fps > 0:
+        frame_interval = max(1, round(fps / force_rate))
+    
+    # Calculate how many frames we'll extract
+    if image_load_cap > 0:
+        num_frames = min(image_load_cap, (total_frames + frame_interval - 1) // frame_interval)
+    else:
+        num_frames = (total_frames + frame_interval - 1) // frame_interval
+    
+    # Extract frames
+    frames = []
+    frame_count = 0
+    frame_idx = 0
+    
+    while frame_count < num_frames:
+        # Set the frame position
+        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+        ret, frame = cap.read()
+        
+        if not ret:
+            break
+        
+        # Convert BGR to RGB
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        
+        # Convert to PIL image for processing
+        pil_image = Image.fromarray(frame)
+        
+        # Resize if needed
+        if max_res > 0:
+            pil_image = resize_image_max_size(pil_image, max_res)
+        
+        # Convert to tensor and add to list
+        tensor = pil_to_tensor(pil_image)
+        frames.append(tensor)
+        
+        frame_count += 1
+        frame_idx += frame_interval
+        
+        if frame_idx >= total_frames:
+            break
+    
+    cap.release()
+    
+    if not frames:
+        raise ValueError(f"No frames extracted from video: {video_path}")
+    
+    return frames, fps, len(frames)
+
+def process_gif(gif_path: str, force_rate: float = 0.0, 
+                image_load_cap: int = 0, max_res: int = 0) -> Tuple[List[torch.Tensor], float, int]:
+    """
+    Process an animated GIF, extracting frames at a specified rate.
+    
+    Args:
+        gif_path: Path to the GIF file
+        force_rate: Target FPS (0 means use original rate)
+        image_load_cap: Maximum number of frames to extract (0 means all)
+        max_res: Maximum resolution for width or height (0 means no resize)
+    
+    Returns:
+        Tuple of (frames as tensors, original fps, frame count)
+    """
+    gif = Image.open(gif_path)
+    
+    if not getattr(gif, "is_animated", False):
+        # Not an animated GIF, treat as a single image
+        if max_res > 0:
+            gif = resize_image_max_size(gif, max_res)
+        return [pil_to_tensor(gif.convert("RGB"))], 0.0, 1
+    
+    # Get original FPS from GIF
+    try:
+        gif_fps = 1000 / (gif.info.get('duration', 100))  # Default 10 FPS if not specified
+    except (ZeroDivisionError, TypeError):
+        gif_fps = 10.0
+    
+    # Calculate frame interval for force_rate
+    frame_interval = 1
+    if force_rate > 0 and gif_fps > 0:
+        frame_interval = max(1, round(gif_fps / force_rate))
+    
+    # Extract frames
+    frames = []
+    frame_count = 0
+    
+    for i, frame in enumerate(ImageSequence.Iterator(gif)):
+        if i % frame_interval != 0:
+            continue
+            
+        # Convert and process frame
+        frame = frame.convert("RGB")
+        
+        # Resize if needed
+        if max_res > 0:
+            frame = resize_image_max_size(frame, max_res)
+        
+        # Convert to tensor
+        tensor = pil_to_tensor(frame)
+        frames.append(tensor)
+        
+        frame_count += 1
+        
+        if image_load_cap > 0 and frame_count >= image_load_cap:
+            break
+    
+    if not frames:
+        raise ValueError(f"No frames extracted from GIF: {gif_path}")
+    
+    return frames, gif_fps, len(frames)
+
+def load_single_image(image_path: str, max_res: int = 0) -> torch.Tensor:
+    """
+    Load a single image and convert to tensor.
+    
+    Args:
+        image_path: Path to the image file
+        max_res: Maximum resolution for width or height (0 means no resize)
+    
+    Returns:
+        Image as tensor (B,C,H,W)
+    """
+    # Open and process image
+    img = Image.open(image_path)
+    img = ImageOps.exif_transpose(img)
+    
+    # Resize if needed
+    if max_res > 0:
+        img = resize_image_max_size(img, max_res)
+    
+    # Convert to tensor
+    tensor = pil_to_tensor(img)
+    
+    return tensor
+
+def concat_image_tensors(tensors: List[torch.Tensor]) -> torch.Tensor:
+    """Concatenate multiple image tensors along the batch dimension."""
+    if not tensors:
+        raise ValueError("No tensors to concatenate")
+    
+    if len(tensors) == 1:
+        return tensors[0]
+    
+    return torch.cat(tensors, dim=0)
+
+class Eden_AllMediaLoader:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "path": ("STRING", {
+                    "image_upload": True,
+                    "tooltip": "Path to media file(s). Can be an image, directory of images, video file, or archive."
+                }),
+                "image_load_cap": ("INT", {
+                    "default": 0,
+                    "min": 0,
+                    "step": 1,
+                    "tooltip": "Maximum number of images to load. 0 means load all images."
+                }),
+                "force_rate": ("FLOAT", {
+                    "default": 0.0,
+                    "min": 0.0,
+                    "step": 0.1,
+                    "tooltip": "Force extracting frames at this FPS rate. 0 means use original rate."
+                }),
+                "max_res": ("INT", {
+                    "default": 2048,
+                    "min": 0,
+                    "step": 1,
+                    "tooltip": "Maximum resolution (width or height). Images larger than this will be resized. 0 means no resize."
+                }),
+                "sort": (["None", "alphabetical", "date_created", "date_modified", "random"], {
+                    "default": "None",
+                    "tooltip": "Method to sort multiple images."
+                })
+            }
+        }
+
+    RETURN_TYPES = ("IMAGE", "INT", "INT", "INT", "STRING", "STRING", "FLOAT")
+    RETURN_NAMES = ("image", "WIDTH", "HEIGHT", "COUNT", "FILE_NAME", "FILE_PATH", "FPS")
+    FUNCTION = "load_media"
+    CATEGORY = "Eden 🌱/general"
+    DESCRIPTION = """Simplified Media Loader for various sources.
+    
+    Features:
+    - Loads images, directories, videos, and GIFs
+    - Extracts frames at a specific FPS rate with force_rate
+    - Automatically resizes images that exceed max_res
+    - Supports basic sorting options
+    - Returns tensors in ComfyUI format [B, H, W, C]
+    """
+    
+    def load_media(self, path: str, image_load_cap: int = 0, force_rate: float = 0.0, 
+                   max_res: int = 0, sort: str = "None") -> Tuple:
+        """
+        Main function to load media from various sources.
+        
+        Args:
+            path: Path to the media file or directory
+            image_load_cap: Maximum number of images to load (0 means all)
+            force_rate: Target FPS for videos/GIFs (0 means use original rate)
+            max_res: Maximum resolution (0 means no resize)
+            sort: Sorting method for directories
+            
+        Returns:
+            Tuple of (image tensor, width, height, count, filename, filepath, fps)
+        """
+        try:
+            resolved_path = load_path(path)
+            
+            # If we got a list of paths from wildcard matching
+            if isinstance(resolved_path, list):
+                return self.process_image_list(resolved_path, image_load_cap, max_res, sort)
+            
+            # Handle single path (file or directory)
+            path = resolved_path
+            parent_directory = os.path.dirname(path) if not os.path.isdir(path) else path
+            
+            # Handle directories
+            if os.path.isdir(path):
+                return self.load_from_directory(path, image_load_cap, max_res, sort)
+            
+            # Handle videos
+            elif path.lower().endswith(('.mp4', '.mov')):
+                frames, fps, frame_count = extract_frames_from_video(
+                    path, force_rate, image_load_cap, max_res
+                )
+                images = concat_image_tensors(frames)
+                
+                # Get dimensions from the first frame
+                b, h, w, c = images.shape
+                file_name = os.path.basename(path).rsplit('.', 1)[0]
+                
+                return (images, w, h, frame_count, file_name, path, fps)
+            
+            # Handle GIFs
+            elif path.lower().endswith('.gif'):
+                frames, fps, frame_count = process_gif(
+                    path, force_rate, image_load_cap, max_res
+                )
+                images = concat_image_tensors(frames)
+                
+                # Get dimensions from the first frame
+                b, h, w, c = images.shape
+                file_name = os.path.basename(path).rsplit('.', 1)[0]
+                
+                return (images, w, h, frame_count, file_name, path, fps)
+            
+            # Handle archives (zip, tar, 7z)
+            elif path.lower().endswith(('.zip', '.tar', '.tar.gz', '.tar.bz2', '.7z')):
+                return self.load_from_archive(path, image_load_cap, max_res, sort)
+            
+            # Handle single image
+            else:
+                image = load_single_image(path, max_res)
+                _, c, h, w = image.shape
+                file_name = os.path.basename(path).rsplit('.', 1)[0]
+                
+                return (image, w, h, 1, file_name, path, 0.0)
+                
+        except Exception as e:
+            logger.error(f"Error loading media: {e}")
+            raise
+    
+    def process_image_list(self, image_paths: List[str], image_load_cap: int = 0, 
+                          max_res: int = 0, sort: str = "None") -> Tuple:
+        """Process a list of image paths."""
+        if not image_paths:
+            raise ValueError("No image paths provided")
+        
+        # Apply sorting
+        if sort == "alphabetical":
+            image_paths.sort(key=lambda x: x.lower())
+        elif sort == "date_created":
+            image_paths.sort(key=lambda x: os.path.getctime(x))
+        elif sort == "date_modified":
+            image_paths.sort(key=lambda x: os.path.getmtime(x))
+        elif sort == "random":
+            random.seed(0)  # Fixed seed for reproducibility
+            random.shuffle(image_paths)
+        
+        # Apply image_load_cap
+        if image_load_cap > 0:
+            image_paths = image_paths[:image_load_cap]
+        
+        # Load all images
+        frames = []
+        for img_path in image_paths:
+            try:
+                tensor = load_single_image(img_path, max_res)
+                frames.append(tensor)
+            except Exception as e:
+                logger.warning(f"Failed to load image {img_path}: {e}")
+        
+        if not frames:
+            raise ValueError("No valid images found in the provided paths")
+        
+        # Concatenate frames
+        images = concat_image_tensors(frames)
+        
+        # Get dimensions from the first frame
+        _, c, h, w = images.shape
+        parent_directory = os.path.dirname(image_paths[0])
+        file_names = [os.path.basename(p).rsplit('.', 1)[0] for p in image_paths]
+        file_name = "|".join(file_names[:3]) + ("..." if len(file_names) > 3 else "")
+        
+        return (images, w, h, len(frames), file_name, parent_directory, 0.0)
+    
+    def load_from_directory(self, directory: str, image_load_cap: int = 0, 
+                           max_res: int = 0, sort: str = "None") -> Tuple:
+        """Load images from a directory."""
+        # Get all image files
+        image_extensions = ['.jpg', '.jpeg', '.png', '.webp', '.gif']
+        image_files = []
+        
+        for ext in image_extensions:
+            image_files.extend(glob.glob(os.path.join(directory, f"*{ext}")))
+            image_files.extend(glob.glob(os.path.join(directory, f"*{ext.upper()}")))
+        
+        if not image_files:
+            raise ValueError(f"No valid image files found in directory {directory}")
+        
+        # Process the image list
+        return self.process_image_list(image_files, image_load_cap, max_res, sort)
+    
+    def load_from_archive(self, archive_path: str, image_load_cap: int = 0, 
+                         max_res: int = 0, sort: str = "None") -> Tuple:
+        """Extract and load images from an archive file."""
+        # Create temporary directory
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Extract archive
+            if archive_path.lower().endswith('.zip'):
+                with zipfile.ZipFile(archive_path, 'r') as z:
+                    z.extractall(temp_dir)
+            elif archive_path.lower().endswith('.7z'):
+                with py7zr.SevenZipFile(archive_path, mode='r') as z:
+                    z.extractall(path=temp_dir)
+            else:  # tar, tar.gz, tar.bz2
+                with tarfile.open(archive_path, 'r') as t:
+                    t.extractall(temp_dir)
+            
+            # Check if there's a single directory in the extracted content
+            contents = os.listdir(temp_dir)
+            if len(contents) == 1 and os.path.isdir(os.path.join(temp_dir, contents[0])):
+                temp_dir = os.path.join(temp_dir, contents[0])
+            
+            # Load from the directory
+            result = self.load_from_directory(temp_dir, image_load_cap, max_res, sort)
+            
+            # Update file path to original archive
+            images, w, h, count, _, _, fps = result
+            file_name = os.path.basename(archive_path).rsplit('.', 1)[0]
+            
+            return (images, w, h, count, file_name, archive_path, fps)

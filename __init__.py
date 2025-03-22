@@ -80,12 +80,14 @@ NODE_CLASS_MAPPINGS = {
     "Eden_Regex_Replace": Eden_Regex_Replace,
     "Eden_Debug_Anything": Eden_Debug_Anything,
     "Eden_RandomNumberSampler": Eden_RandomNumberSampler,
-    "Eden_RandomFilepathSampler": Eden_RandomFilepathSampler
+    "Eden_RandomFilepathSampler": Eden_RandomFilepathSampler,
+    "Eden_AllMediaLoader": Eden_AllMediaLoader,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "Eden_RandomNumberSampler": "Random Number Sampler 🎲",
-    "Eden_RandomFilepathSampler": "Random Filepath Sampler 🎲"
+    "Eden_RandomFilepathSampler": "Random Filepath Sampler 🎲",
+    "Eden_AllMediaLoader": "All Media Loader 📁",
 }
 
 try:
