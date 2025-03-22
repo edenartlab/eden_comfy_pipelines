@@ -359,7 +359,6 @@ class VAEDecode_to_folder:
 
 
 
-
 from sklearn.cluster import KMeans
 from .img_utils import lab_to_rgb, rgb_to_lab
 import numpy as np
@@ -398,16 +397,17 @@ class MaskFromRGB_KMeans:
                 "n_color_clusters": ("INT", {"default": 6, "min": 2, "max": 10}),
                 "clustering_resolution": ("INT", {"default": 256, "min": 32, "max": 1024}),
                 "feathering_fraction": ("FLOAT", { "default": 0.05, "min": 0.0, "max": 0.5, "step": 0.01 }),
+                "equalize_areas": ("FLOAT", { "default": 0.0, "min": 0.0, "max": 1.0, "step": 0.01 }),
             }
         }
 
-    RETURN_TYPES = ("MASK","MASK","MASK","MASK","MASK","MASK","MASK","MASK",)
-    RETURN_NAMES = ("1","2","3","4","5","6","7","8",)
+    RETURN_TYPES = ("MASK","MASK","MASK","MASK","MASK","MASK","MASK","MASK","MASK",)
+    RETURN_NAMES = ("1","2","3","4","5","6","7","8","combined",)
     FUNCTION = "execute"
     CATEGORY = "Eden 🌱"
 
     @torch.no_grad()
-    def execute(self, image, n_color_clusters, clustering_resolution, feathering_fraction):
+    def execute(self, image, n_color_clusters, clustering_resolution, feathering_fraction, equalize_areas):
         # Get appropriate device
         if torch.cuda.is_available():
             device = torch.device('cuda')
@@ -458,13 +458,129 @@ class MaskFromRGB_KMeans:
         # Map the cluster labels to new sorted indices
         sorted_cluster_labels = np.vectorize(index_map.get)(cluster_labels)
         cluster_labels = torch.from_numpy(sorted_cluster_labels).to(device).view(n, h, w)
-
+        
+        # Apply area equalization if requested
+        if equalize_areas > 0:
+            # Count the frequency of each cluster (across all frames)
+            cluster_counts = torch.zeros(n_color_clusters, device=device)
+            for i in range(n_color_clusters):
+                cluster_counts[i] = (cluster_labels == i).sum().float()
+            
+            # Calculate the average target count if clusters were equal
+            avg_count = cluster_counts.sum() / n_color_clusters
+            
+            # Calculate the percentile threshold for each cluster based on counts
+            thresholds = []
+            
+            # Convert to numpy for easier processing
+            cluster_labels_cpu = cluster_labels.cpu().numpy()
+            
+            # Create a flattened view for convenient processing
+            flat_labels = cluster_labels_cpu.reshape(-1)
+            
+            # Process each cluster
+            for i in range(n_color_clusters):
+                # Get the flattened LAB values for this cluster
+                mask = flat_labels == i
+                cluster_size = mask.sum()
+                
+                if cluster_size == 0:
+                    # Skip empty clusters
+                    thresholds.append(None)
+                    continue
+                
+                cluster_lab_values = lab_images_cpu[mask]
+                
+                # Calculate distances to the cluster center
+                distances = np.linalg.norm(cluster_lab_values - cluster_centers[sorted_indices[i]], axis=1)
+                
+                # Sort distances
+                sorted_distances = np.sort(distances)
+                
+                # Calculate the current to target ratio
+                current_size = cluster_counts[i].item()
+                ratio = current_size / avg_count.item()
+                
+                # Apply the equalize_areas weight
+                weighted_ratio = 1.0 + (ratio - 1.0) * equalize_areas
+                
+                # Calculate the target size after weighting
+                target_size = current_size / weighted_ratio
+                
+                # If target size is smaller, we need a threshold to cut off the furthest points
+                if target_size < current_size:
+                    percentile = (target_size / current_size) * 100
+                    threshold_idx = min(len(sorted_distances) - 1, int(percentile * len(sorted_distances) / 100))
+                    thresholds.append(sorted_distances[threshold_idx])
+                else:
+                    # No threshold needed if we're expanding
+                    thresholds.append(None)
+            
+            # Create a new tensor for the adjusted labels
+            adjusted_labels = cluster_labels.clone()
+            
+            # Process each cluster
+            for i in range(n_color_clusters):
+                if thresholds[i] is not None:
+                    # Get the LAB values for this cluster
+                    cluster_mask = (cluster_labels == i)
+                    
+                    if not cluster_mask.any():
+                        continue
+                    
+                    # Calculate distances for all pixels in this cluster
+                    cluster_data = lab_images.view(-1, 3)[cluster_mask.view(-1)]
+                    cluster_center = torch.tensor(cluster_centers[sorted_indices[i]], device=device)
+                    
+                    # Calculate squared distances to the cluster center
+                    distances = torch.sum((cluster_data - cluster_center)**2, dim=1)
+                    
+                    # Create a mask for points to reassign
+                    reassign_mask = distances > thresholds[i]**2
+                    
+                    if reassign_mask.any():
+                        # Find the indices in the original tensor
+                        indices = torch.nonzero(cluster_mask.view(-1), as_tuple=True)[0][reassign_mask]
+                        
+                        # For these points, find the next closest cluster
+                        points_to_reassign = lab_images.view(-1, 3)[indices]
+                        
+                        # Calculate distances to all cluster centers
+                        all_distances = torch.zeros((len(points_to_reassign), n_color_clusters), device=device)
+                        
+                        for j in range(n_color_clusters):
+                            if j == i:
+                                # Set distance to current cluster as infinity to force reassignment
+                                all_distances[:, j] = float('inf')
+                            else:
+                                center = torch.tensor(cluster_centers[sorted_indices[j]], device=device)
+                                all_distances[:, j] = torch.sum((points_to_reassign - center)**2, dim=1)
+                        
+                        # Find the closest cluster for each point
+                        new_clusters = torch.argmin(all_distances, dim=1)
+                        
+                        # Update the adjusted labels
+                        flat_adjusted = adjusted_labels.view(-1)
+                        flat_adjusted[indices] = new_clusters
+            
+            # Replace the original labels with the adjusted ones
+            cluster_labels = adjusted_labels
+        
         # Transform the cluster_labels into masks
         masks = torch.zeros(n, 8, h, w, device=device)
 
         for i in range(n):
-            for j in range(n_color_clusters):
+            for j in range(min(n_color_clusters, 8)):
                 masks[i, j] = (cluster_labels[i] == j).float()
+
+        # Create the combined mask
+        combined_mask = torch.zeros(n, h, w, device=device)
+        for i in range(n):
+            for j in range(n_color_clusters):
+                # Map each cluster to a shade of gray (0 to 1)
+                if j < n_color_clusters:
+                    gray_value = j / (n_color_clusters - 1) if n_color_clusters > 1 else 0
+                    combined_mask[i] += (cluster_labels[i] == j).float() * gray_value
 
         if feathering_fraction > 0:
             n_imgs, n_colors, h, w = masks.shape
@@ -504,14 +620,37 @@ class MaskFromRGB_KMeans:
                 masks_feathered[i] = mask_feathered.squeeze()
             
             masks = masks_feathered.view(n_imgs, n_colors, h, w)
+            
+            # Also feather the combined mask
+            combined_mask_padded = combined_mask.unsqueeze(1)  # Add channel dimension
+            combined_mask_batch = combined_mask_padded.view(n, 1, h, w)
+            
+            combined_mask_feathered = torch.zeros_like(combined_mask_batch)
+            
+            for i in range(combined_mask_batch.shape[0]):
+                mask_padded = combined_mask_batch[i].unsqueeze(0)  # Add batch dimension
+                
+                # Apply reflection padding
+                mask_padded = F.pad(mask_padded, (pad_size, pad_size, pad_size, pad_size), mode='reflect')
+                
+                # Apply convolution
+                mask_feathered = F.conv2d(mask_padded, kernel, padding=0)
+                
+                # Store the result
+                combined_mask_feathered[i] = mask_feathered.squeeze()
+            
+            combined_mask = combined_mask_feathered.squeeze(1)
 
         # Upscale masks to original resolution
         masks = F.interpolate(masks, size=(image.shape[1], image.shape[2]), mode='bicubic', align_corners=False)
+        combined_mask = F.interpolate(combined_mask.unsqueeze(1), size=(image.shape[1], image.shape[2]), mode='bicubic', align_corners=False).squeeze(1)
         
         # Move masks back to the original device
         masks = masks.to(original_device)
+        combined_mask = combined_mask.to(original_device)
 
-        return masks[:, 0], masks[:, 1], masks[:, 2], masks[:, 3], masks[:, 4], masks[:, 5], masks[:, 6], masks[:, 7]
+        return masks[:, 0], masks[:, 1], masks[:, 2], masks[:, 3], masks[:, 4], masks[:, 5], masks[:, 6], masks[:, 7], combined_mask
+
 
 class Eden_MaskCombiner:
     @classmethod
