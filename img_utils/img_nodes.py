@@ -1,7 +1,4 @@
-import torch
-from PIL import Image
 import os, time
-import torch
 import cv2
 import numpy as np
 import random
@@ -9,11 +6,15 @@ import gc
 import torch
 import imghdr
 
+from PIL import Image, ImageOps, ImageSequence
 import torch.nn.functional as F
+
 from scipy import ndimage
 
 import torchvision.transforms.functional as T
 import comfy.utils
+from torch.cuda.amp import autocast
+import psutil
 
 ###########################################################################
 
@@ -23,8 +24,11 @@ import folder_paths
 
 ###########################################################################
 
-from torch.cuda.amp import autocast
-import psutil
+class AnyType(str):
+    def __ne__(self, __value: object) -> bool:
+        return False
+
+any_typ = AnyType("*")
 
 def print_available_memory():
     memory = psutil.virtual_memory()
@@ -1404,7 +1408,6 @@ def get_uniformly_sized_crops(imgs, target_n_pixels=2048**2):
     
     return resized_imgs
 
-from PIL import Image, ImageOps, ImageSequence
 class LoadRandomImage:
     def __init__(self):
         self.img_extensions = [".png", ".jpg", ".jpeg", ".bmp", ".webp", ".JPEG", ".JPG"]
@@ -1421,11 +1424,12 @@ class LoadRandomImage:
                 }
         }
 
-    CATEGORY = "Eden 🌱"
-    RETURN_TYPES = ("IMAGE",)
-    FUNCTION = "load_image"
+    CATEGORY = "Eden 🌱/general"
+    RETURN_TYPES = ("IMAGE", any_typ, any_typ)
+    RETURN_NAMES = ("Image(s)", "paths", "filenames")
+    FUNCTION = "load"
 
-    def load_image(self, folder, n_images, seed, sort, loop_sequence):
+    def load(self, folder, n_images, seed, sort, loop_sequence):
         image_paths = [os.path.join(folder, f) for f in os.listdir(folder)]
         image_paths = [f for f in image_paths if os.path.isfile(f)]
         # Filter using file extensions
@@ -1453,7 +1457,7 @@ class LoadRandomImage:
         if sort:
             valid_image_paths = sorted(valid_image_paths)
 
-        imgs = []
+        imgs, paths, filenames = [], [], []
         for image_path in valid_image_paths:
             try:
                 img = Image.open(image_path)
@@ -1467,9 +1471,13 @@ class LoadRandomImage:
             image = img.convert("RGB")
             image = np.array(image).astype(np.float32) / 255.0
             imgs.append(image)
+            paths.append(image_path)
+            filenames.append(os.path.basename(image_path))
 
         if loop_sequence and len(imgs) > 1:
             imgs.append(imgs[0])  # Loop back to the first image
+            paths.append(paths[0])
+            filenames.append(filenames[0])
 
         if len(imgs) > 1:
             imgs = get_uniformly_sized_crops(imgs, target_n_pixels=1024**2)
@@ -1478,7 +1486,7 @@ class LoadRandomImage:
         else:
             output_image = torch.from_numpy(imgs[0])[None,]
 
-        return (output_image,)
+        return (output_image, paths, filenames,)
 
 
 class ImageFolderIterator:
@@ -1615,7 +1623,6 @@ class LoadImagesByFilename:
             output_image = torch.cat(output_images, dim=0)
         else:
             output_image = torch.from_numpy(output_images[0])[None,]
-
         return (output_image,)
 
 

@@ -5,6 +5,12 @@ https://github.com/theUpsider/ComfyUI-Logic/tree/fb8897351f715ea75eebf52e74515b6
 
 """
 
+class AnyType(str):
+    def __ne__(self, __value: object) -> bool:
+        return False
+
+any_typ = AnyType("*")
+
 class Eden_String:
     @classmethod
     def INPUT_TYPES(s):
