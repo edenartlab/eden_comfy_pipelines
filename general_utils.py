@@ -1,4 +1,5 @@
-import sys, os, time, math, re, subprocess
+import sys, os, time, math, re, subprocess, json
+from datetime import datetime
 import hashlib
 import folder_paths
 from statistics import mean
@@ -743,6 +744,9 @@ class Eden_RandomFilepathSampler:
                         filtered_files.append(filepath)
             
             all_files = filtered_files
+
+        # Remove weird / os specific hidden files:
+        all_files = [f for f in all_files if not os.path.basename(f).startswith('.')]
         
         # Check if any files match the criteria
         if not all_files:
@@ -1345,3 +1349,217 @@ class Eden_AllMediaLoader:
             file_name = os.path.basename(archive_path).rsplit('.', 1)[0]
             
             return (images, w, h, count, file_name, archive_path, fps)
+
+class Eden_Save_Param_Dict:
+    """Node that collects various inputs, assigns keys to them, and saves them as a JSON file"""
+    
+    def __init__(self):
+        self.output_dir = folder_paths.get_output_directory()
+    
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "save_path": ("STRING", {"default": "params.json", "multiline": False}),
+            },
+            "optional": {
+                "key_1": ("STRING", {"default": "param1"}),
+                "value_1": (any_typ,),
+                "key_2": ("STRING", {"default": "param2"}),
+                "value_2": (any_typ,),
+                "key_3": ("STRING", {"default": "param3"}),
+                "value_3": (any_typ,),
+                "key_4": ("STRING", {"default": "param4"}),
+                "value_4": (any_typ,),
+                "key_5": ("STRING", {"default": "param5"}),
+                "value_5": (any_typ,),
+                "key_6": ("STRING", {"default": "param6"}),
+                "value_6": (any_typ,),
+                "key_7": ("STRING", {"default": "param7"}),
+                "value_7": (any_typ,),
+                "key_8": ("STRING", {"default": "param8"}),
+                "value_8": (any_typ,),
+                "key_9": ("STRING", {"default": "param9"}),
+                "value_9": (any_typ,),
+                "key_10": ("STRING", {"default": "param10"}),
+                "value_10": (any_typ,),
+            }
+        }
+
+    FUNCTION = "make_dict"
+    RETURN_TYPES = ("STRING", "STRING")
+    RETURN_NAMES = ("saved_path", "json_string")
+    CATEGORY = "Eden 🌱/Logic"
+    DESCRIPTION = "Collects various inputs with custom keys and saves them as a JSON file in the output directory"
+    
+    def _should_preserve_as_list(self, key, obj):
+        """Determine if an object should be preserved as a list rather than joined"""
+        # Check for keywords that suggest we should keep as a list
+        list_keywords = ["images", "files", "paths", "styles", "inputs", "sources"]
+        if any(keyword in key.lower() for keyword in list_keywords):
+            return True
+        return False
+    
+    def _is_file_path(self, value):
+        """Check if a string looks like a file path with an extension"""
+        if not isinstance(value, str):
+            return False
+        # Check for file extension pattern
+        return bool(re.search(r'\.\w+$', value))
+    
+    def _make_serializable(self, obj, key=""):
+        """Convert objects to serializable formats, preserving numeric types and lists when needed"""
+        # Handle basic types
+        if isinstance(obj, bool):
+            return obj
+        elif isinstance(obj, int):
+            return obj
+        elif isinstance(obj, float):
+            # Preserve full float precision
+            return obj
+        elif obj is None:
+            return None
+        # Handle strings
+        elif isinstance(obj, str):
+            return obj
+        # Handle torch tensors
+        elif isinstance(obj, torch.Tensor):
+            # Single value tensors convert to actual numbers
+            if obj.numel() == 1:
+                value = obj.item()
+                return value  # Will be int or float automatically
+            # For larger tensors but not huge, convert to list
+            elif obj.numel() < 1000:
+                return obj.tolist()
+            # For huge tensors, just return shape info
+            else:
+                return f"Tensor with shape {obj.shape}"
+        # Handle numpy arrays
+        elif isinstance(obj, np.ndarray):
+            # Single value arrays convert to actual numbers
+            if obj.size == 1:
+                value = obj.item()
+                return value  # Will be int or float automatically
+            # For larger arrays but not huge, convert to list
+            elif obj.size < 1000:
+                return obj.tolist()
+            # For huge arrays, just return shape info
+            else:
+                return f"Array with shape {obj.shape}"
+        # Handle lists and tuples
+        elif isinstance(obj, (list, tuple)):
+            # Check if it's a list of strings
+            if all(isinstance(item, str) for item in obj):
+                # If this key suggests file paths or images, or list contains file extensions, keep as list
+                if self._should_preserve_as_list(key, obj) or any(self._is_file_path(item) for item in obj):
+                    return [str(item) for item in obj]  # Keep as list
+                # Otherwise join with newlines if multiple strings
+                elif len(obj) > 1:
+                    return "\n".join(obj)
+                elif len(obj) == 1:
+                    return obj[0]
+                else:
+                    return ""
+            # Otherwise, process each item normally
+            return [self._make_serializable(item, key) for item in obj]
+        # Handle dictionaries
+        elif isinstance(obj, dict):
+            return {str(k): self._make_serializable(v, str(k)) for k, v in obj.items()}
+        # Handle other types
+        else:
+            # Try to extract basic properties
+            try:
+                props = {}
+                for attr in dir(obj):
+                    if not attr.startswith('_') and not callable(getattr(obj, attr)):
+                        props[attr] = self._make_serializable(getattr(obj, attr), attr)
+                return {"_type": type(obj).__name__, "properties": props}
+            except:
+                return str(obj)
+    
+    def _process_filename_prefix(self, filename_prefix):
+        """Process date formatters and other variables in the filename prefix"""
+        # Process date formatters
+        date_regex = r"%date:([^%]+)%"
+        date_matches = re.findall(date_regex, filename_prefix)
+        for date_format in date_matches:
+            date_str = datetime.now().strftime(date_format)
+            filename_prefix = filename_prefix.replace(f"%date:{date_format}%", date_str)
+        
+        return filename_prefix
+    
+    def _get_unique_filename(self, filename_prefix):
+        """Generate a unique filename that doesn't overwrite existing files"""
+        # Ensure .json extension
+        if not filename_prefix.lower().endswith('.json'):
+            filename_prefix += '.json'
+        
+        # Process any formatters in the filename
+        filename_prefix = self._process_filename_prefix(filename_prefix)
+        
+        # Extract base path and file extension
+        base_name, ext = os.path.splitext(filename_prefix)
+        
+        # Get output directory and create if needed
+        output_dir = self.output_dir
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Check for subfolder in the path
+        subfolder = ""
+        if os.path.dirname(base_name):
+            subfolder = os.path.dirname(base_name)
+            output_dir = os.path.join(output_dir, subfolder)
+            os.makedirs(output_dir, exist_ok=True)
+            base_name = os.path.basename(base_name)
+        
+        # Find a unique counter value to avoid overwriting
+        counter = 1
+        while True:
+            filename = f"{base_name}_{counter:05}{ext}"
+            full_path = os.path.join(output_dir, filename)
+            if not os.path.exists(full_path):
+                break
+            counter += 1
+        
+        return full_path, filename, subfolder
+    
+    def make_dict(self, save_path, **kwargs):
+        """Combine all inputs into a dictionary and save to JSON"""
+        result_dict = {}
+        
+        try:
+            # Process all key-value pairs
+            for i in range(1, 11):
+                key_name = f"key_{i}"
+                value_name = f"value_{i}"
+                
+                # Check if this pair exists in kwargs
+                if key_name in kwargs and value_name in kwargs:
+                    key = kwargs[key_name]
+                    value = kwargs[value_name]
+                    
+                    # Only add if we have both key and value
+                    if key and value is not None:
+                        try:
+                            # Pass the key to the serializer so it can make context-aware decisions
+                            result_dict[key] = self._make_serializable(value, key)
+                        except Exception as e:
+                            print(f"Error processing {key}: {e}")
+                            result_dict[key] = f"ERROR: {str(e)}"
+            
+            # Generate a unique filename
+            full_path, filename, subfolder = self._get_unique_filename(save_path)
+            
+            # Create JSON string with full precision for floats
+            json_string = json.dumps(result_dict, indent=2, ensure_ascii=False)
+            
+            # Save to file
+            with open(full_path, 'w') as f:
+                f.write(json_string)
+            
+            print(f"Saved parameter dictionary to {full_path}")
+            return (full_path, json_string)
+            
+        except Exception as e:
+            print(f"Error in Eden_Save_Param_Dict: {e}")
+            return (f"ERROR: {str(e)}", "{}")

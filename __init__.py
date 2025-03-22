@@ -82,12 +82,14 @@ NODE_CLASS_MAPPINGS = {
     "Eden_RandomNumberSampler": Eden_RandomNumberSampler,
     "Eden_RandomFilepathSampler": Eden_RandomFilepathSampler,
     "Eden_AllMediaLoader": Eden_AllMediaLoader,
+    "Eden_Save_Param_Dict": Eden_Save_Param_Dict
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "Eden_RandomNumberSampler": "Random Number Sampler 🎲",
     "Eden_RandomFilepathSampler": "Random Filepath Sampler 🎲",
     "Eden_AllMediaLoader": "All Media Loader 📁",
+    "Eden_Save_Param_Dict": "Save Param Dict 📁"
 }
 
 try:
