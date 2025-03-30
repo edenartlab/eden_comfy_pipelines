@@ -598,7 +598,7 @@ class Eden_randbool:
                     "probability": ("FLOAT", {"default": 0.5}),
                 }
             }
-    RETURN_TYPES = ("BOOL",)
+    RETURN_TYPES = ("BOOLEAN",)
     RETURN_NAMES = ("bool",)
     FUNCTION = "sample"
     CATEGORY = "Eden 🌱/random_c"
