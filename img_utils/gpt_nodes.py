@@ -190,3 +190,69 @@ class ImageDescriptionNode:
             return (description,)
         except Exception as e:
             return (f"Error: {str(e)}",)
+
+class Eden_GPTStructuredOutput:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "prompt": ("STRING", {
+                    "multiline": True,
+                    "default": "Generate a structured response about the given topic"
+                }),
+                "system_prompt": ("STRING", {
+                    "multiline": True,
+                    "default": "You are a helpful assistant that generates structured JSON responses."
+                }),
+                "json_schema": ("STRING", {
+                    "multiline": True,
+                    "default": '{\n  "type": "object",\n  "properties": {\n    "title": {"type": "string"},\n    "description": {"type": "string"},\n    "key_points": {"type": "array", "items": {"type": "string"}}\n  },\n  "required": ["title", "description", "key_points"]\n}'
+                }),
+                "max_tokens": ("INT", {"default": 1000}),
+                "model": (["gpt-4o", "gpt-4-turbo"], {"default": "gpt-4o"}),
+                "seed": ("INT", {"default": 0}),
+            },
+            "optional": {
+                "temperature": ("FLOAT", {
+                    "default": 0.7,
+                    "min": 0.0,
+                    "max": 2.0,
+                    "step": 0.1
+                }),
+            }
+        }
+
+    RETURN_TYPES = ("STRING",)
+    FUNCTION = "generate_structured_output"
+    CATEGORY = "Eden 🌱"
+
+    def generate_structured_output(self, prompt, system_prompt, json_schema, max_tokens, model, seed, temperature=0.7):
+        try:
+            if not client:
+                return ("An OpenAI API key is required for GPT Structured Output. Make sure to place a .env file in the root directory with your OpenAI API key.",)
+
+            # Construct the system message to guide GPT's behavior
+            system_message = f"""{system_prompt}
+            
+You must respond with a valid JSON object that strictly follows this schema:
+{json_schema}
+
+Do not include any explanations or text outside the JSON object."""
+
+            response = client.chat.completions.create(
+                model=model,
+                seed=seed,
+                temperature=temperature,
+                messages=[
+                    {"role": "system", "content": system_message},
+                    {"role": "user", "content": prompt},
+                ],
+                max_tokens=max_tokens,
+                response_format={"type": "json_object"}
+            )
+
+            structured_output = response.choices[0].message.content
+            return (structured_output,)
+            
+        except Exception as e:
+            return (f"Error in structured output generation: {str(e)}",)

@@ -41,6 +41,7 @@ NODE_CLASS_MAPPINGS = {
     "ImageDescriptionNode": ImageDescriptionNode,
     "Eden_gpt4_node": Eden_gpt4_node,
     "Eden_GPTPromptEnhancer": Eden_GPTPromptEnhancer,
+    "Eden_GPTStructuredOutput": Eden_GPTStructuredOutput,
     "FolderScanner": FolderScanner,
     "SavePosEmbeds": SavePosEmbeds,
     "VideoFrameSelector": VideoFrameSelector,
