@@ -77,3 +77,110 @@ class KeyframeBlender:
         ip_adapter_attention_masks = ip_adapter_attention_masks ** ip_adapter_gamma
 
         return blended_video, denoising_masks, ip_adapter_attention_masks, curve_image, ip_adapter_trajectory
+    
+
+import os, re
+import subprocess
+import torch
+import numpy as np
+from folder_paths import get_output_directory
+
+class MaskedRegionVideoExport:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "images": ("IMAGE",),
+                "masks": ("MASK",),
+                "fps": ("INT", {"default": 16, "min": 1, "max": 120}),
+                "filename_prefix": ("STRING", {"default": "masked_video"}),
+                "flip_mask": ("BOOLEAN", {"default": False}),
+                "format": (["webm", "prores_mov"],),
+            }
+        }
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("video_path",)
+    OUTPUT_NODE = True
+    CATEGORY = "Video"
+    FUNCTION = "export"
+
+    def export(self, images, masks, fps, filename_prefix, flip_mask, format):
+        if images.shape[0] != masks.shape[0]:
+            raise ValueError("Number of images and masks must match!")
+
+        print(f"Masking images of shape: {images.shape} with masks of shape: {masks.shape}")
+        print(f"Mask max value: {masks.max()}, min value: {masks.min()}")
+
+        output_dir = get_output_directory()
+        ext = "webm" if format == "webm" else "mov"
+        base_name = f"{filename_prefix}"
+        existing_files = os.listdir(output_dir)
+        matcher = re.compile(re.escape(base_name) + r"_(\d+)\." + ext + r"$", re.IGNORECASE)
+        max_index = -1
+        for f in existing_files:
+            match = matcher.fullmatch(f)
+            if match:
+                max_index = max(max_index, int(match.group(1)))
+        new_index = max_index + 1
+        video_filename = f"{base_name}_{new_index:03d}.{ext}"
+        video_path = os.path.join(output_dir, video_filename)
+
+        height, width = images.shape[1:3]
+
+        if format == "webm":
+            codec = "libvpx-vp9"
+            pix_fmt = "yuva420p"
+            ffmpeg_args = [
+                "ffmpeg", "-y", "-f", "rawvideo", "-vcodec", "rawvideo",
+                "-pix_fmt", "rgba", "-s", f"{width}x{height}", "-r", str(fps),
+                "-i", "-", "-c:v", codec,
+                "-crf", "19", "-b:v", "0",
+                "-pix_fmt", pix_fmt,
+                "-auto-alt-ref", "0",
+                video_path
+            ]
+        else:  # prores_mov
+            codec = "prores_ks"
+            pix_fmt = "yuva444p10le"
+            ffmpeg_args = [
+                "ffmpeg", "-y", "-f", "rawvideo", "-vcodec", "rawvideo",
+                "-pix_fmt", "rgba", "-s", f"{width}x{height}", "-r", str(fps),
+                "-i", "-", "-c:v", codec,
+                "-profile:v", "4",  # ProRes 4444
+                "-pix_fmt", pix_fmt,
+                video_path
+            ]
+
+        frames = []
+        for img, mask in zip(images, masks):
+            img = (img.cpu().numpy() * 255).clip(0, 255).astype(np.uint8)
+            mask = mask.cpu().numpy()
+
+            if flip_mask:
+                mask = 1.0 - mask
+
+            mask = np.clip(mask, 0, 1)
+            alpha = (mask * 255).astype(np.uint8)
+            img[alpha == 0] = 0
+            rgba = np.dstack([img, alpha])
+            frames.append(rgba)
+
+        video_data = b''.join([frame.tobytes() for frame in frames])
+
+        try:
+            subprocess.run(ffmpeg_args, input=video_data, check=True)
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError(f"ffmpeg failed: {e.stderr}")
+
+        preview = {
+            "filename": video_filename,
+            "subfolder": "",
+            "type": "output",
+            "format": f"video/{ext}",
+            "frame_rate": fps,
+            "workflow": "",
+            "fullpath": video_path,
+        }
+
+        return {"ui": {"gifs": [preview]}, "result": (video_path,)}
