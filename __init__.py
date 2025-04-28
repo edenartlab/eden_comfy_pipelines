@@ -12,6 +12,7 @@ from img_utils.animation import Animation_RGB_Mask
 from video_utils.gradient_mask_video import KeyframeBlender, MaskedRegionVideoExport
 from ip_adapter_utils.moodmix_utils import *
 from video_utils.video_interpolation import VideoFrameSelector
+from video_utils.fill_image_mask import OrganicFillNode
 from general_utils import *
 
 WEB_DIRECTORY = "./js"
@@ -84,14 +85,16 @@ NODE_CLASS_MAPPINGS = {
     "Eden_RandomNumberSampler": Eden_RandomNumberSampler,
     "Eden_RandomFilepathSampler": Eden_RandomFilepathSampler,
     "Eden_AllMediaLoader": Eden_AllMediaLoader,
-    "Eden_Save_Param_Dict": Eden_Save_Param_Dict
+    "Eden_Save_Param_Dict": Eden_Save_Param_Dict,
+    "OrganicFillNode": OrganicFillNode
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "Eden_RandomNumberSampler": "Random Number Sampler 🎲",
     "Eden_RandomFilepathSampler": "Random Filepath Sampler 🎲",
     "Eden_AllMediaLoader": "All Media Loader 📁",
-    "Eden_Save_Param_Dict": "Save Param Dict 📁"
+    "Eden_Save_Param_Dict": "Save Param Dict 📁",
+    "OrganicFillNode": "Organic Fill Mask Animation"
 }
 
 try:
