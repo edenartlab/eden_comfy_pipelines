@@ -17,6 +17,23 @@ def tensor_to_np_mask(t: torch.Tensor) -> np.ndarray:
         t = t.cpu()
     return (t.numpy().astype(np.uint8) * 255)
 
+# Helper function for normalization
+def normalize_tensor(tensor: torch.Tensor) -> torch.Tensor:
+    """Normalize tensor to [0, 1] range."""
+    if tensor.numel() == 0: return tensor # Handle empty tensor
+    min_val = torch.min(tensor)
+    max_val = torch.max(tensor)
+    if max_val > min_val:
+        normalized = (tensor - min_val) / (max_val - min_val)
+    else:
+        # Handle case where all values are the same (avoid division by zero)
+        # If values are outside [0, 1], scale them; otherwise, keep them.
+        if min_val < 0 or max_val > 1:
+             normalized = torch.zeros_like(tensor) if min_val == 0 else torch.ones_like(tensor) * 0.5 # Or map to a default like 0.5
+        else:
+             normalized = tensor # Already in range or single value within range
+    return normalized.clamp(0, 1) # Ensure clamp just in case
+
 def load_image(path: str, target_size: Optional[Tuple[int, int]] = None) -> Optional[torch.Tensor]:
     """Load image from path and convert to tensor [H,W,C] with optional resizing."""
     if not os.path.exists(path):
@@ -57,8 +74,8 @@ def load_image(path: str, target_size: Optional[Tuple[int, int]] = None) -> Opti
         tensor = tensor[0:1] # Take one channel -> [1, H, W]
     elif tensor.shape[0] == 4: # RGBA converted by ToTensor()
          tensor = tensor[:3] # Drop alpha -> [3, H, W]
-
-    return tensor.permute(1, 2, 0) # [H,W,C]
+         
+    return tensor.float().permute(1, 2, 0) # [H,W,C]
 
 
 def save_frames_as_gif(frames: torch.Tensor, output_path: str, duration: int = 100):
@@ -73,7 +90,10 @@ def save_frames_as_gif(frames: torch.Tensor, output_path: str, duration: int = 1
     # Ensure tensor is on CPU and float type [0, 1] range for ToPILImage
     frames = frames.cpu().float()
 
-    frames_pil = [ToPILImage()(f) for f in frames]
+    # Normalize each frame individually to [0, 1]
+    normalized_frames = [normalize_tensor(f) for f in frames]
+
+    frames_pil = [ToPILImage()(f) for f in normalized_frames]
     if frames_pil:
         try:
             frames_pil[0].save(
@@ -111,7 +131,9 @@ def visualize_inputs(output_dir: str, test_name: str, input_img: Optional[torch.
 
     def plot_img(ax, img_tensor, title, cmap=None):
         if img_tensor is None: return False
+        # Convert to numpy first, as imshow handles uint8 [0, 255] correctly
         img_np = img_tensor.cpu().numpy()
+
         # Handle different channel configurations [H,W,C], [H,W], [C,H,W]
         if img_np.ndim == 3 and img_np.shape[0] in [1, 3]: # [C,H,W] -> [H,W,C]
             img_np = np.transpose(img_np, (1, 2, 0))
@@ -151,6 +173,8 @@ def visualize_frames_grid(output_dir: str, test_name: str, frames: torch.Tensor,
         return
 
     frames = frames.cpu().float() # Ensure CPU and float for plotting
+    # No normalization needed here if imshow handles ranges okay, or if frames are known to be [0,1]
+    # Let's assume frames are okay based on user feedback for now.
 
     if len(frames) == 0:
         print(f"Warning: No frames provided to visualize_frames_grid for {test_name}")
@@ -167,7 +191,9 @@ def visualize_frames_grid(output_dir: str, test_name: str, frames: torch.Tensor,
 
     for i, idx in enumerate(frame_indices):
         ax = axes[i]
-        ax.imshow(frames[idx].numpy(), cmap='gray')
+        # Normalize frame before displaying
+        frame_to_plot = normalize_tensor(frames[idx])
+        ax.imshow(frame_to_plot.numpy(), cmap='gray')
         ax.set_title(f"Frame {idx}")
         ax.axis('off')
 
@@ -190,37 +216,40 @@ def visualize_final_result(output_dir: str, test_name: str, input_img: Optional[
     output_path = os.path.join(output_dir, f"{test_name}_result_visualization.png")
 
     # --- Prepare Tensors ---
-    final_mask = final_mask.cpu().float()
+    # Normalize first, then ensure CPU float
+    final_mask_norm = normalize_tensor(final_mask).cpu().float()
+    input_img_norm = None
     if input_img is not None:
-        input_img = input_img.cpu().float()
+        input_img_norm = normalize_tensor(input_img).cpu().float()
+
 
     # Standardize mask: [H, W]
-    if final_mask.dim() == 4 and final_mask.shape[1] == 1: final_mask = final_mask.squeeze(1) #[B, H, W]
-    if final_mask.dim() == 4 and final_mask.shape[-1] == 1: final_mask = final_mask.squeeze(-1) #[B, H, W]
-    if final_mask.dim() == 3 and final_mask.shape[0] == 1: final_mask = final_mask.squeeze(0) # [H, W]
-    if final_mask.dim() != 2:
-        print(f"Warning: Unexpected final_mask shape {final_mask.shape}, skipping visualization.")
+    if final_mask_norm.dim() == 4 and final_mask_norm.shape[1] == 1: final_mask_norm = final_mask_norm.squeeze(1) #[B, H, W]
+    if final_mask_norm.dim() == 4 and final_mask_norm.shape[-1] == 1: final_mask_norm = final_mask_norm.squeeze(-1) #[B, H, W]
+    if final_mask_norm.dim() == 3 and final_mask_norm.shape[0] == 1: final_mask_norm = final_mask_norm.squeeze(0) # [H, W]
+    if final_mask_norm.dim() != 2:
+        print(f"Warning: Unexpected final_mask shape {final_mask_norm.shape}, skipping visualization.")
         return
 
     # Standardize input image: [H, W, C] or None
-    if input_img is not None:
-        if input_img.dim() == 4 and input_img.shape[0] == 1: input_img = input_img.squeeze(0) # [C, H, W] or [H, W, C]
-        if input_img.dim() == 3 and input_img.shape[0] in [1, 3]: # [C, H, W] -> [H, W, C]
-             input_img = input_img.permute(1, 2, 0)
-        if input_img.dim() != 3 or input_img.shape[-1] not in [1, 3]:
-            print(f"Warning: Unexpected input_img shape {input_img.shape}, cannot blend.")
-            input_img = None # Treat as unavailable for blending
+    if input_img_norm is not None:
+        if input_img_norm.dim() == 4 and input_img_norm.shape[0] == 1: input_img_norm = input_img_norm.squeeze(0) # [C, H, W] or [H, W, C]
+        if input_img_norm.dim() == 3 and input_img_norm.shape[0] in [1, 3]: # [C, H, W] -> [H, W, C]
+             input_img_norm = input_img_norm.permute(1, 2, 0)
+        if input_img_norm.dim() != 3 or input_img_norm.shape[-1] not in [1, 3]:
+            print(f"Warning: Unexpected input_img shape {input_img_norm.shape}, cannot blend.")
+            input_img_norm = None # Treat as unavailable for blending
 
 
     # --- Plotting ---
-    num_plots = 2 + (input_img is not None) # Original, Mask, Blend (if possible)
+    num_plots = 2 + (input_img_norm is not None) # Original, Mask, Blend (if possible)
     fig, axes = plt.subplots(1, num_plots, figsize=(5 * num_plots, 5))
     axes = [axes] if num_plots == 1 else axes.flatten()
     plot_idx = 0
 
     # Plot Original Image (if available)
-    if input_img is not None:
-        input_np = input_img.numpy()
+    if input_img_norm is not None:
+        input_np = input_img_norm.numpy()
         axes[plot_idx].imshow(input_np.squeeze()) # Squeeze for grayscale [H,W,1]
         axes[plot_idx].set_title("Original Image")
         axes[plot_idx].axis('off')
@@ -233,15 +262,15 @@ def visualize_final_result(output_dir: str, test_name: str, input_img: Optional[
 
 
     # Plot Final Mask
-    mask_np = final_mask.numpy()
+    mask_np = final_mask_norm.numpy()
     axes[plot_idx].imshow(mask_np, cmap='gray')
     axes[plot_idx].set_title("Final Mask")
     axes[plot_idx].axis('off')
     plot_idx += 1
 
     # Plot Blended Result (if original image available)
-    if input_img is not None:
-        input_np = input_img.numpy()
+    if input_img_norm is not None:
+        input_np = input_img_norm.numpy()
         # Create RGB mask broadcastable to image shape
         mask_rgb = np.stack([mask_np]*input_np.shape[-1], axis=-1) if input_np.ndim == 3 else mask_np # Handle grayscale input
 
@@ -287,7 +316,9 @@ def save_final_mask(output_dir: str, test_name: str, final_mask: torch.Tensor):
 
     try:
         # Ensure tensor is on CPU and in a suitable format for ToPILImage (e.g., float [0,1] or uint8)
-        final_pil = ToPILImage()(final_mask.cpu().float())
+        # Normalize before converting
+        final_mask_norm = normalize_tensor(final_mask).cpu().float()
+        final_pil = ToPILImage()(final_mask_norm)
         final_pil.save(output_path)
         print(f"- Final mask: {os.path.basename(output_path)}")
     except Exception as e:
