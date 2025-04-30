@@ -10,6 +10,9 @@ from typing import Tuple, Optional, List, Dict, Any
 from PIL import Image
 from torchvision.transforms import ToTensor, ToPILImage, Resize
 
+# Import utilities from the new file
+from fill_utils import *
+
 # ────────────────────────────────────────────────────────────────────────────────
 #  CONFIG & ENUMS
 # ────────────────────────────────────────────────────────────────────────────────
@@ -61,12 +64,10 @@ def _sobel_grad(img: torch.Tensor) -> torch.Tensor:
 
 def _normalise(t: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
     mn, mx = t.min(), t.max()
+    # Avoid division by zero if min and max are the same
+    if mx - mn < eps:
+        return torch.zeros_like(t)
     return (t - mn) / (mx - mn + eps)
-
-
-def _tensor_to_np_mask(t: torch.Tensor) -> np.ndarray:
-    """Convert boolean Torch mask [H,W] to uint8 0/255 numpy."""
-    return (t.cpu().numpy().astype(np.uint8) * 255)
 
 
 # ────────────────────────────────────────────────────────────────────────────────
@@ -127,7 +128,7 @@ class OrganicFillBatch:
         print("Computing distance transform...")
         sdf_out = []
         for b in range(B):
-            m_sk = _tensor_to_np_mask(self.mask[b]>0)
+            m_sk = tensor_to_np_mask(self.mask[b]>0)
             dist_out = cv2.distanceTransform(255-m_sk, cv2.DIST_L2, 5)
             sdf_out.append(torch.from_numpy(dist_out))
         SDF_OUT = torch.stack(sdf_out).to(device)  # [B,H,W]
@@ -164,9 +165,12 @@ class OrganicFillBatch:
                 return
             bw = []
             for b in range(B):
+                # Use the imported utility function
                 sk = skeletonize((self.mask[b]>0).cpu().numpy()).astype(np.uint8)
                 dist_to_skel = cv2.distanceTransform(255-sk*255, cv2.DIST_L2, 3)
-                dist_norm = dist_to_skel / (dist_to_skel.max()+1e-8)
+                # Normalize distance robustly
+                max_dist = dist_to_skel.max()
+                dist_norm = dist_to_skel / (max_dist + 1e-8) if max_dist > 0 else dist_to_skel
                 bw.append(1.0 - torch.from_numpy(dist_norm))  # 1 near skeleton, 0 far
             self.branch_weight = torch.stack(bw).to(device)
         else:
@@ -191,42 +195,53 @@ class OrganicFillBatch:
         print(f"Placing seeds using {start_field.value} strategy...")
         for b in range(B):
             m = valid[b]
+            # Simplify seed point selection logic
             if start_field == StartField.CLOSEST_POINT and self.depth is not None:
                 depth_b = self.depth[b]
-                depth_inside = torch.where(m, depth_b, torch.full_like(depth_b, 1e9))
-                yx = torch.nonzero(depth_inside == depth_inside.min())
-                if yx.numel()==0:
-                    yx = torch.nonzero(m)
-                y, x = yx[0]
+                # Use torch.where for cleaner masking
+                depth_inside = torch.where(m, depth_b, torch.full_like(depth_b, float('inf')))
+                min_depth = depth_inside.min()
+                # Handle cases where no valid depth minimum exists within the mask
+                yx_candidates = torch.nonzero(depth_inside == min_depth, as_tuple=False)
+                if yx_candidates.numel() > 0:
+                    yx = yx_candidates[0] # Take the first one if multiple minima
+                else: # Fallback if no min depth found or depth map is weird
+                     yx_valid = torch.nonzero(m, as_tuple=False)
+                     if yx_valid.numel() > 0:
+                         yx = yx_valid[torch.randint(len(yx_valid),(1,))]
+                     else: # Should not happen if mask is valid, but handle edge case
+                         print(f"Warning: No valid pixels found in mask for batch {b}. Placing seed at center.")
+                         yx = torch.tensor([[H//2, W//2]], device=self.device)
+                y, x = yx[0], yx[1]
             else:
+                # Simplified region selection
+                h2, w2 = H // 2, W // 2
+                thirds_h, thirds_w = H // 3, W // 3
+                sel = torch.zeros_like(m)
                 if start_field == StartField.RANDOM:
-                    y, x = pick_seed(m, m)[0]
-                else:
-                    h2, w2 = H//2, W//2
-                    thirds_h, thirds_w = H//3, W//3
-                    sel = torch.zeros_like(m)
-                    # Build selector logically
-                    if start_field == StartField.TOP_LEFT:
-                        sel[:h2,:w2]=1
-                    elif start_field == StartField.TOP_RIGHT:
-                        sel[:h2,w2:]=1
-                    elif start_field == StartField.BOTTOM_LEFT:
-                        sel[h2:,:w2]=1
-                    elif start_field == StartField.BOTTOM_RIGHT:
-                        sel[h2:,w2:]=1
-                    elif start_field == StartField.CENTER:
-                        sel[h2//2:h2+h2//2, w2//2:w2+w2//2]=1
-                    elif start_field == StartField.TOP_CENTER:
-                        sel[:thirds_h, thirds_w:2*thirds_w]=1
-                    elif start_field == StartField.BOTTOM_CENTER:
-                        sel[2*thirds_h:, thirds_w:2*thirds_w]=1
-                    elif start_field == StartField.LEFT_CENTER:
-                        sel[thirds_h:2*thirds_h, :thirds_w]=1
-                    elif start_field == StartField.RIGHT_CENTER:
-                        sel[thirds_h:2*thirds_h, 2*thirds_w:]=1
-                    else:  # default random
-                        sel = m
-                    y, x = pick_seed(m, sel.bool())[0]
+                    sel = m # Select from anywhere inside mask
+                elif start_field == StartField.TOP_LEFT:      sel[:h2, :w2] = 1
+                elif start_field == StartField.TOP_RIGHT:     sel[:h2, w2:] = 1
+                elif start_field == StartField.BOTTOM_LEFT:   sel[h2:, :w2] = 1
+                elif start_field == StartField.BOTTOM_RIGHT:  sel[h2:, w2:] = 1
+                elif start_field == StartField.CENTER:        sel[thirds_h:2*thirds_h, thirds_w:2*thirds_w] = 1
+                elif start_field == StartField.TOP_CENTER:    sel[:thirds_h, thirds_w:2*thirds_w] = 1
+                elif start_field == StartField.BOTTOM_CENTER: sel[2*thirds_h:, thirds_w:2*thirds_w] = 1
+                elif start_field == StartField.LEFT_CENTER:   sel[thirds_h:2*thirds_h, :thirds_w] = 1
+                elif start_field == StartField.RIGHT_CENTER:  sel[thirds_h:2*thirds_h, 2*thirds_w:] = 1
+
+                # Find valid points within the selected region and the mask
+                yx_candidates = torch.nonzero(m & sel.bool(), as_tuple=False)
+                if yx_candidates.numel() == 0: # Fallback to any valid point in mask
+                    yx_candidates = torch.nonzero(m, as_tuple=False)
+
+                if yx_candidates.numel() > 0:
+                    yx = yx_candidates[torch.randint(len(yx_candidates), (1,))]
+                    y, x = yx[0,0], yx[0,1]
+                else: # Should not happen if mask is valid
+                    print(f"Warning: No valid pixels found for seeding in batch {b}. Placing seed at center.")
+                    y, x = H//2, W//2
+
             # Apply circular seed
             yy, xx = torch.meshgrid(torch.arange(H,device=self.device), torch.arange(W,device=self.device), indexing='ij')
             circle = ((yy-y)**2 + (xx-x)**2 <= self.cfg.seed_radius**2)
@@ -249,10 +264,11 @@ class OrganicFillBatch:
                                  stride=1, 
                                  padding=padding).squeeze(1) > 0
         else:
-            # Fallback to OpenCV
-            recent_np = recent.cpu().numpy().astype(np.uint8)
+            # Fallback to OpenCV (ensure numpy array is contiguous)
+            recent_np = np.ascontiguousarray(recent.cpu().numpy().astype(np.uint8))
             kernel = np.ones((2*self.cfg.active_region_padding+1,)*2, np.uint8)
-            padded = torch.from_numpy(cv2.dilate(recent_np, kernel)).bool().to(self.device)
+            dilated_np = cv2.dilate(recent_np, kernel)
+            padded = torch.from_numpy(dilated_np).bool().to(self.device)
             
         self.active_mask = padded & (self.grid<1) & (self.mask>0)
 
@@ -403,17 +419,14 @@ class OrganicFillNode:
         
         print("Preparing auxiliary maps...")
         if depth_map is not None:
-            print(f"Input depth map dimensions: {depth_map.shape}")
             depth_map = _prep_aux(depth_map)
             print(f"Processed depth map dimensions: {depth_map.shape}")
         
         if canny_map is not None:
-            print(f"Input canny map dimensions: {canny_map.shape}")
             canny_map = _prep_aux(canny_map)
             print(f"Processed canny map dimensions: {canny_map.shape}")
         
         if SAM_map is not None:
-            print(f"Input SAM map dimensions: {SAM_map.shape}")
             SAM_prob = _prep_aux(SAM_map)
             print(f"Processed SAM map dimensions: {SAM_prob.shape}")
         else:
@@ -472,218 +485,142 @@ class OrganicFillNode:
 #  TEST FUNCTIONALITY
 # ────────────────────────────────────────────────────────────────────────────────
 
+def run_test_case(test_config: Dict[str, Any], output_dir: str):
+    """Loads data, runs the fill node, and saves visualizations for a single test case."""
+    test_name = test_config.get("name", "unnamed_test")
+    print(f"\n--- Running test case: {test_name} ---")
+
+    # --- 1. Load Input Image ---
+    input_path = test_config.get("input")
+    if not input_path:
+        print(f"Skipping {test_name}: 'input' path missing in config.")
+        return
+    input_img_hwc = load_image(input_path)
+    if input_img_hwc is None:
+        print(f"Skipping {test_name}: Failed to load input image at '{input_path}'.")
+        return
+    input_img_bhwc = input_img_hwc.unsqueeze(0).cpu()
+    target_size = input_img_hwc.shape[:2]  # (H, W)
+    H, W = target_size
+    print(f"Input image loaded ({test_name}): {input_img_bhwc.shape}, Target size: {target_size}")
+
+    # --- 2. Load Auxiliary Maps ---
+    depth_path = test_config.get("depth")
+    canny_path = test_config.get("canny")
+    sam_path = test_config.get("SAM") # Use "SAM" key for consistency
+
+    depth_map_hwc = load_image(depth_path, target_size) if depth_path else None
+    canny_map_hwc = load_image(canny_path, target_size) if canny_path else None
+    sam_map_hwc = load_image(sam_path, target_size) if sam_path else None
+
+    depth_map_bhwc = depth_map_hwc.unsqueeze(0).cpu() if depth_map_hwc is not None else None
+    canny_map_bhwc = canny_map_hwc.unsqueeze(0).cpu() if canny_map_hwc is not None else None
+
+    # --- 3. Prepare Mask (Load SAM or Create Synthetically) ---
+    if sam_map_hwc is not None:
+        # Assume loaded SAM map is already a mask or probability map [0,1]
+        # Convert to BHWC, ensure single channel
+        if sam_map_hwc.shape[-1] > 1: # Take first channel if multi-channel
+            sam_map_hwc = sam_map_hwc[..., 0:1]
+        sam_map_bhwc = sam_map_hwc.unsqueeze(0).cpu()
+        print(f"Using SAM map for {test_name}: {sam_map_bhwc.shape}")
+    else:
+        sam_map_bhwc = None
+
+    # --- 4. Visualize Inputs ---
+    visualize_inputs(
+        output_dir=output_dir,
+        test_name=test_name,
+        input_img=input_img_bhwc[0], # Pass HWC
+        depth_map=depth_map_bhwc[0] if depth_map_bhwc is not None else None,
+        canny_map=canny_map_bhwc[0] if canny_map_bhwc is not None else None
+    )
+
+    # --- 5. Prepare Node Parameters ---
+    node_params = {
+        "input_image": input_img_bhwc,
+        "depth_map": depth_map_bhwc,
+        "canny_map": canny_map_bhwc,
+        "SAM_map": sam_map_bhwc, # Provide the prepared mask/sam map here
+        "max_steps": test_config.get("max_steps", 500),
+        "start_field": test_config.get("start_field", StartField.CENTER.value),
+        "pulsate_strength": test_config.get("pulsate_strength", 0.1),
+        "directional_flow": test_config.get("directional_flow", True),
+        "branch_awareness": test_config.get("branch_awareness", 0.3),
+    }
+
+    # --- 6. Run Organic Fill Node ---
+    fill_node = OrganicFillNode()
+    final_mask, frames = fill_node.execute(**node_params) # Returns BHW, N H W
+
+    # Ensure shapes are correct for saving utilities (expect HW for mask, NHW for frames)
+    if final_mask.dim() == 3: # BHW -> HW
+        final_mask_hw = final_mask[0]
+    else: # Assume already HW
+        final_mask_hw = final_mask
+
+    if frames.dim() == 4: # NBH -> NHW
+        frames_nhw = frames[:, 0, :, :]
+    else: # Assume already NHW
+        frames_nhw = frames
+
+    # Save final mask (pass HW)
+    save_final_mask(output_dir, test_name, final_mask_hw)
+
+    # Save animated fill process (pass NHW)
+    save_frames_as_gif(frames_nhw, os.path.join(output_dir, f"{test_name}_fill_process.gif"))
+
+    # Visualize frame grid (pass NHW)
+    visualize_frames_grid(output_dir, test_name, frames_nhw)
+
+    # Visualize final result blended (pass HWC input, HW mask)
+    visualize_final_result(
+        output_dir=output_dir,
+        test_name=test_name,
+        input_img=input_img_bhwc[0], # Pass HWC
+        final_mask=final_mask_hw    # Pass HW
+    )
+
+    print(f"--- Test {test_name} complete. Results saved to {output_dir}/ ---")
+
+
 if __name__ == "__main__":
     import os
-    from PIL import Image
-    import matplotlib.pyplot as plt
-    from torchvision.transforms import ToTensor, ToPILImage, Resize
+    import matplotlib
+    matplotlib.use('Agg') # Use non-interactive backend for saving files
 
-    def load_image(path, target_size=None):
-        """Load image from path and convert to tensor with optional resizing."""
-        if not os.path.exists(path):
-            print(f"File not found: {path}")
-            return None
-        img = Image.open(path)
-        
-        # Resize if target_size is provided
-        if target_size is not None:
-            # Use BICUBIC instead of deprecated LANCZOS
-            img = img.resize((target_size[1], target_size[0]), Image.BICUBIC)
-        
-        # Convert to tensor and handle channels
-        tensor = ToTensor()(img).permute(1, 2, 0)  # [H,W,C]
-        
-        # If grayscale image saved as RGB (3 identical channels), convert to single channel
-        if tensor.shape[-1] == 3 and torch.allclose(tensor[...,0], tensor[...,1], atol=1e-3) and torch.allclose(tensor[...,1], tensor[...,2], atol=1e-3):
-            tensor = tensor[...,0:1]
-            
-        return tensor
+    # Define test assets paths (relative to script location)
+    script_dir = os.path.dirname(__file__)
+    test_dir = os.path.join(script_dir, "test_assets")
+    output_dir = os.path.join(script_dir, "test_output")
+    os.makedirs(output_dir, exist_ok=True)
 
-    def save_frames_as_gif(frames, output_path):
-        """Save frames as animated gif."""
-        frames_pil = [ToPILImage()(f.squeeze(0)) for f in frames]
-        frames_pil[0].save(
-            output_path, 
-            save_all=True,
-            append_images=frames_pil[1:],
-            optimize=True,
-            duration=100,
-            loop=0
-        )
-
-    # Test assets paths
-    test_dir = "test_assets"
+    # Define test cases as dictionaries
     test_cases = [
         {
-            "name": "img1",
-            "input": os.path.join(test_dir, "img1.jpg"),
-            "depth": os.path.join(test_dir, "img1_depth.png"),
-            "canny": os.path.join(test_dir, "img1_canny.png"),
+            "name": "img1_depth",
+            "input": os.path.join(test_dir, "img2.jpg"),
+            "depth": os.path.join(test_dir, "img2_depth.jpg"),
+            "start_field": StartField.CENTER.value,
+            "pulsate_strength": 0.2,
+            "directional_flow": False,
+            "branch_awareness": 0.1,
+            "max_steps": 600
         },
         {
-            "name": "img2",
+            "name": "img1_depth_canny",
             "input": os.path.join(test_dir, "img2.jpg"),
-            "depth": os.path.join(test_dir, "img2_depth.png"),
-            "canny": os.path.join(test_dir, "img2_canny.png"),
+            "depth": os.path.join(test_dir, "img2_depth.jpg"),
+            "canny": os.path.join(test_dir, "img2_canny.jpg"),
+            "start_field": StartField.CLOSEST_POINT.value, # Use depth minimum
+            "pulsate_strength": 0.0,
+            "directional_flow": True,
+            "branch_awareness": 0.5,
+            "max_steps": 700
         }
     ]
 
-    # Create output directory if it doesn't exist
-    output_dir = "test_output"
-    os.makedirs(output_dir, exist_ok=True)
+    for config in test_cases:
+        run_test_case(config, output_dir)
 
-    # Run tests
-    for test in test_cases:
-        print(f"\n\nTesting on {test['name']}...")
-        
-        # Load input image first to get dimensions
-        input_img = load_image(test["input"])
-        
-        if input_img is None:
-            print(f"Skipping {test['name']} due to missing input image")
-            continue
-            
-        # Get target size from input image
-        target_size = input_img.shape[:2]  # (H, W)
-        print(f"Using target size: {target_size}")
-        
-        # Load auxiliary maps with resizing to match input dimensions
-        depth_map = load_image(test["depth"], target_size)
-        canny_map = load_image(test["canny"], target_size)
-        
-        # Ensure depth is single-channel
-        if depth_map is not None and depth_map.shape[-1] == 3:
-            # Convert to grayscale if it's RGB
-            depth_map = 0.299 * depth_map[...,0] + 0.587 * depth_map[...,1] + 0.114 * depth_map[...,2]
-            depth_map = depth_map.unsqueeze(-1)  # Add channel dimension back
-            
-        # Same for canny
-        if canny_map is not None and canny_map.shape[-1] == 3:
-            # Convert to grayscale if it's RGB
-            canny_map = 0.299 * canny_map[...,0] + 0.587 * canny_map[...,1] + 0.114 * canny_map[...,2]
-            canny_map = canny_map.unsqueeze(-1)  # Add channel dimension back
-        
-        # Create directory for outputs
-        os.makedirs("test_output", exist_ok=True)
-        
-        # Create a synthetic mask for testing (circle in center)
-        H, W = target_size
-        y, x = torch.meshgrid(torch.arange(H), torch.arange(W), indexing='ij')
-        
-        # Use different shapes for the two test cases
-        if test["name"] == "img1":
-            # Create an ellipse for img1
-            circle_mask = (((y - H//2)**2)/(H//6)**2 + ((x - W//2)**2)/(W//6)**2 < 1).float()
-        else:
-            # Create two circles for img2
-            circle1 = ((y - H//3)**2 + (x - W//3)**2 < min(H,W)**2//25).float()
-            circle2 = ((y - 2*H//3)**2 + (x - 2*W//3)**2 < min(H,W)**2//20).float()
-            circle_mask = torch.clamp(circle1 + circle2, 0, 1)
-        
-        circle_mask = circle_mask.unsqueeze(-1)
-        
-        # Save the synthetic mask
-        debug_mask = ToPILImage()(circle_mask.squeeze(-1))
-        debug_mask.save(f"test_output/{test['name']}_seed_mask.png")
-        
-        # Create a composite visualization of the input
-        fig, axes = plt.subplots(1, 4, figsize=(16, 4))
-        axes[0].imshow(input_img.cpu().numpy())
-        axes[0].set_title("Input Image")
-        axes[0].axis('off')
-        
-        axes[1].imshow(depth_map.squeeze(-1).cpu().numpy(), cmap='viridis')
-        axes[1].set_title("Depth Map")
-        axes[1].axis('off')
-        
-        axes[2].imshow(canny_map.squeeze(-1).cpu().numpy(), cmap='gray')
-        axes[2].set_title("Canny Edges")
-        axes[2].axis('off')
-        
-        axes[3].imshow(circle_mask.squeeze(-1).cpu().numpy(), cmap='gray')
-        axes[3].set_title("Seed Mask")
-        axes[3].axis('off')
-        
-        plt.tight_layout()
-        plt.savefig(f"test_output/{test['name']}_inputs.png")
-        plt.close()
-        
-        # Run organic fill with the synthetic mask and more steps
-        fill_node = OrganicFillNode()
-        final_mask, frames = fill_node.execute(
-            input_image=input_img,
-            depth_map=depth_map,
-            canny_map=canny_map,
-            SAM_map=circle_mask,  # Use our synthetic mask
-            max_steps=500,  # More steps to allow better filling
-            start_field=StartField.CENTER.value,
-            pulsate_strength=0.1,
-            directional_flow=True,
-            branch_awareness=0.3
-        )
-        
-        # Save results
-        output_base = os.path.join(output_dir, test["name"])
-        
-        # Save final mask
-        final_pil = ToPILImage()(final_mask.squeeze(0))
-        final_pil.save(f"{output_base}_final_mask.png")
-        
-        # Save animated fill process
-        save_frames_as_gif(frames, f"{output_base}_fill_process.gif")
-        
-        # Display intermediate frames as grid
-        num_frames = min(9, len(frames))
-        frame_indices = torch.linspace(0, len(frames)-1, num_frames).long()
-        
-        fig, axes = plt.subplots(3, 3, figsize=(12, 12))
-        for i, idx in enumerate(frame_indices):
-            ax = axes[i//3, i%3]
-            ax.imshow(frames[idx].squeeze(0).cpu().numpy(), cmap='gray')
-            ax.set_title(f"Frame {idx}")
-            ax.axis('off')
-        
-        plt.tight_layout()
-        plt.savefig(f"{output_base}_frames_grid.png")
-        plt.close()
-        
-        # Create a visualization of the final result blended with the original image
-        fig, axes = plt.subplots(1, 3, figsize=(15, 5))
-        
-        # Original image
-        axes[0].imshow(input_img.cpu().numpy())
-        axes[0].set_title("Original Image")
-        axes[0].axis('off')
-        
-        # Final mask
-        axes[1].imshow(final_mask.squeeze(0).cpu().numpy(), cmap='gray')
-        axes[1].set_title("Final Mask")
-        axes[1].axis('off')
-        
-        # Blended result - properly broadcast mask to match image dimensions
-        mask_np = final_mask.squeeze(0).cpu().numpy()
-        input_np = input_img.cpu().numpy()
-        
-        # Create RGB mask with same dimensions as input
-        mask_rgb = np.zeros_like(input_np)
-        for i in range(3):  # Copy mask to all 3 channels
-            mask_rgb[..., i] = mask_np
-            
-        # Blend images
-        blended = 0.7 * input_np + 0.3 * mask_rgb
-        
-        axes[2].imshow(blended)
-        axes[2].set_title("Blended Result")
-        axes[2].axis('off')
-        
-        plt.tight_layout()
-        plt.savefig(f"{output_base}_result_visualization.png")
-        plt.close()
-        
-        print(f"Saved results for {test['name']} to {output_dir}/")
-        print(f"- Final mask: {test['name']}_final_mask.png")
-        print(f"- Fill process animation: {test['name']}_fill_process.gif")
-        print(f"- Frames grid: {test['name']}_frames_grid.png")
-        print(f"- Result visualization: {test['name']}_result_visualization.png")
-    
-    print("\nAll tests completed!")
+    print("\nAll specified tests completed!")
