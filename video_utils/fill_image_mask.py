@@ -11,7 +11,7 @@ from PIL import Image
 from torchvision.transforms import ToTensor, ToPILImage, Resize
 
 # Import utilities from the new file
-from fill_utils import *
+from .fill_utils import *
 
 # ────────────────────────────────────────────────────────────────────────────────
 #  CONFIG & ENUMS
@@ -41,7 +41,7 @@ class FillNodeConfig:
     saturation_window: int = 15
     saturation_threshold: float = 1e-3
     pulsate_strength: float = 0.0  # added – sinusoidal modulation strength
-    directional_flow: bool = False  # added – bias by depth gradient
+    directional_flow: float = 0.0  # changed from bool - bias strength by depth gradient
     branch_awareness: float = 0.0  # added – favour skeleton proximity
     lab_gradient_scale: float = 5.0 # Scale factor for LAB L* gradient influence
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
@@ -112,7 +112,7 @@ class OrganicFillBatch:
     """Performs confidence‑aware organic fill on a batch of images."""
     def __init__(self,
                  input_image: torch.Tensor, # [B,H,W,C] float 0-1 RGB/Gray
-                 base_mask: torch.Tensor,   # [B,H,W] float 0/1
+                 base_mask: torch.Tensor,   # [B,H,W] float 0/1 (Note: Currently always full image)
                  depth: Optional[torch.Tensor] = None,  # [B,H,W] float 0‑1
                  canny: Optional[torch.Tensor] = None,  # [B,H,W] float/bool
                  sem: Optional[torch.Tensor] = None,    # [B,H,W] float 0‑1
@@ -124,6 +124,7 @@ class OrganicFillBatch:
 
         self.input_image = input_image.to(self.device)
         self.mask = base_mask.to(self.device).float()  # 1 inside, 0 outside
+        # Note: self.mask is currently always torch.ones((B, H, W)) as initialized in execute()
         B, H, W = self.mask.shape
         self.B, self.H, self.W = B, H, W
 
@@ -182,18 +183,9 @@ class OrganicFillBatch:
             P_sem = _normalise(self.sem) # Assume higher value means more likely to be filled
 
         # --- Signed Distance Field Penalty (always calculated based on base_mask) ---
-        # Penalises growing close to the boundary defined by the mask
-        print("Computing distance transform (SDF)...")
-        sdf_out = []
-        mask_cpu = (self.mask > 0).cpu().numpy()
-        for b in range(B):
-            # If mask is all ones, distance is 0 everywhere, doesn't hurt
-            dist_out = cv2.distanceTransform(np.uint8(1 - mask_cpu[b])*255, cv2.DIST_L2, 5)
-            sdf_out.append(torch.from_numpy(dist_out))
-        SDF_OUT = torch.stack(sdf_out).to(device)
-        SDF_OUT = _normalise(SDF_OUT)
-        # Increase penalty for being near the border (outside mask)
-        sdf_penalty = 1.0 - torch.tanh(SDF_OUT * 3) # High SDF_OUT means far from border -> penalty close to 1
+        # Removed SDF Penalty: Since self.mask is always full, the SDF is always 0,
+        # and the sdf_penalty is always 1.0.
+        sdf_penalty = 1.0 # Placeholder for consistency in multiplication below
 
         # --- Depth Gradient Contribution (if available) ---
         # Penalises growing across sharp depth changes
@@ -230,8 +222,8 @@ class OrganicFillBatch:
         self.confidence = torch.clamp(confidence, 0.0, 1.0)
 
         # --- Branch Awareness (if enabled and mask is not full) ---
-        mask_is_full = self.mask.all() # Check if the mask covers the entire image
-        if self.cfg.branch_awareness > 0.0 and not mask_is_full:
+        # Note: self.mask is always full, so skeletonization happens on the whole image frame.
+        if self.cfg.branch_awareness > 0.0:
             print("Computing branch awareness map...")
             try:
                 from skimage.morphology import skeletonize
@@ -258,36 +250,30 @@ class OrganicFillBatch:
             self.branch_weight = torch.stack(bw).to(device).float()
             print("Branch awareness map computed.")
         else:
-            if self.cfg.branch_awareness > 0.0 and mask_is_full:
-                print("Branch awareness skipped: base_mask covers the entire image.")
             self.branch_weight = torch.ones((B,H,W), device=device)
 
 
     # ────────────────────────────────────────────────────────────────────────
     #  SEED PLACEMENT
     # ────────────────────────────────────────────────────────────────────────
-    def _place_seeds(self, start_field: StartField):
+    def _place_seeds(self, start_field: StartField): # Simplified assuming full mask
         B,H,W = self.B,self.H,self.W
-        # Valid pixels for seeding are within the provided base_mask
-        valid = self.mask > 0
+        # Since mask is full, all pixels are initially valid for region selection
 
         print(f"Placing seeds using {start_field.value} strategy within the mask...")
         for b in range(B):
-            m = valid[b] # Mask for the current batch item
-            if not m.any(): # Check if the mask is completely empty
-                print(f"Warning: Mask for batch {b} is empty. Cannot place seed. Organic fill may not work.")
-                continue # Skip seed placement for this item
+            # No need to check m.any() since mask is always full
 
             # Determine seed coordinates (y, x)
             yx = None
             if start_field == StartField.CLOSEST_POINT and self.depth is not None:
                 depth_b = self.depth[b]
                 # Find min depth only within the valid mask region
-                depth_inside = torch.where(m, depth_b, torch.full_like(depth_b, float('inf')))
-                min_depth_val = depth_inside.min()
+                depth_inside = depth_b # Since m is all True
+                max_depth_val = depth_inside.max()
 
-                if torch.isfinite(min_depth_val):
-                    yx_candidates = torch.nonzero(depth_inside == min_depth_val, as_tuple=False)
+                if torch.isfinite(max_depth_val):
+                    yx_candidates = torch.nonzero(depth_inside == max_depth_val, as_tuple=False)
                     if yx_candidates.numel() > 0:
                         # Randomly pick one if multiple minima exist
                         yx = yx_candidates[torch.randint(len(yx_candidates), (1,))]
@@ -299,10 +285,10 @@ class OrganicFillBatch:
             if yx is None:
                 h2, w2 = H // 2, W // 2
                 thirds_h, thirds_w = H // 3, W // 3
-                sel = torch.zeros_like(m, dtype=torch.bool) # Selection region
+                sel = torch.zeros_like(self.mask[b], dtype=torch.bool) # Selection region
 
                 if start_field == StartField.RANDOM or start_field == StartField.CLOSEST_POINT: # CLOSEST_POINT falls back to RANDOM if depth fails
-                    sel = m # Select from anywhere inside mask
+                    sel = self.mask[b] # Select from anywhere inside mask
                 elif start_field == StartField.TOP_LEFT:      sel[:h2, :w2] = True
                 elif start_field == StartField.TOP_RIGHT:     sel[:h2, w2:] = True
                 elif start_field == StartField.BOTTOM_LEFT:   sel[h2:, :w2] = True
@@ -314,10 +300,10 @@ class OrganicFillBatch:
                 elif start_field == StartField.RIGHT_CENTER:  sel[thirds_h:2*thirds_h, 2*thirds_w:] = True
 
                 # Find valid points intersection of mask and selected region
-                valid_candidates = torch.nonzero(m & sel, as_tuple=False)
+                valid_candidates = torch.nonzero(sel, as_tuple=False) # Simplified: m is True
 
                 if valid_candidates.numel() == 0: # If region+mask is empty, fallback to any point in mask
-                    valid_candidates = torch.nonzero(m, as_tuple=False)
+                    valid_candidates = torch.nonzero(torch.ones_like(sel), as_tuple=False) # Simplified: m is True
 
                 if valid_candidates.numel() > 0:
                     # Randomly pick one from the candidates
@@ -332,8 +318,8 @@ class OrganicFillBatch:
             # Apply circular seed around (y, x), respecting the mask `m`
             yy, xx = torch.meshgrid(torch.arange(H,device=self.device), torch.arange(W,device=self.device), indexing='ij')
             dist_sq = (yy - y)**2 + (xx - x)**2
-            circle = dist_sq <= self.cfg.seed_radius**2
-            self.grid[b][circle & m] = 1.0 # Seed only within the mask
+            circle = dist_sq <= self.cfg.seed_radius**2 # The actual seed shape
+            self.grid[b][circle] = 1.0 # Simplified: m is True
 
         print("Seed placement complete.")
 
@@ -359,7 +345,7 @@ class OrganicFillBatch:
                                      padding=padding).squeeze(1) > 0
 
         # Update active mask: must be dilated active area, not yet filled, and within the base mask
-        self.active_mask = dilated_active & (self.grid < 1) & (self.mask > 0)
+        self.active_mask = dilated_active & (self.grid < 1)
 
 
     def step(self):
@@ -376,8 +362,9 @@ class OrganicFillBatch:
         # Branch weight is 1 if awareness is off or mask is full
         P = self.confidence * self.branch_weight
 
-        # --- Directional flow bias via depth gradient (if enabled and depth available) ---
-        if self.cfg.directional_flow and self.depth is not None:
+        # --- Directional flow bias via depth gradient ---
+        # Apply bias if strength > 0 and depth map exists
+        if self.cfg.directional_flow > 0.0 and self.depth is not None:
             # Calculate depth gradient magnitude
             d_norm = _normalise(self.depth)
             grad_mag = _sobel_grad(d_norm)
@@ -386,8 +373,7 @@ class OrganicFillBatch:
             # Bias probability: Increase probability in direction of *lower* depth gradient
             # We use (1 - grad_mag_norm) - areas with low gradient get higher bias
             # Additive bias factor - adjust strength as needed
-            depth_bias_strength = 0.5 # Example strength factor
-            flow_bias = (1.0 - grad_mag_norm) * depth_bias_strength
+            flow_bias = (1.0 - grad_mag_norm) * self.cfg.directional_flow # Use configured strength
             P = P * (1.0 + flow_bias) # Modulate base probability
             P = torch.clamp(P, 0, 1) # Ensure probability stays within [0,1]
 
@@ -431,11 +417,13 @@ class OrganicFillBatch:
     #  HELPERS
     # ────────────────────────────────────────────────────────────────────────
     def fill_ratio(self):
-        """Calculate fill ratio per batch item."""
-        mask_area = self.mask.sum(dim=(1,2))
-        filled_area = (self.grid * self.mask).sum(dim=(1,2))
+        """Calculate fill ratio per batch item (simplified for full mask)."""
+        # mask_area = self.mask.sum(dim=(1,2)) # Original
+        # filled_area = (self.grid * self.mask).sum(dim=(1,2)) # Original
+        mask_area = torch.full((self.B,), self.H * self.W, device=self.device, dtype=torch.float32)
+        filled_area = self.grid.sum(dim=(1,2)).float()
         # Avoid division by zero if mask area is zero for some batch items
-        ratio = torch.where(mask_area > 0, filled_area / mask_area, torch.zeros_like(mask_area))
+        ratio = torch.where(mask_area > 0, filled_area / mask_area, torch.zeros_like(mask_area, device=self.device))
         return ratio # [B]
 
     def is_complete(self):
@@ -454,7 +442,8 @@ class OrganicFillBatch:
 
         # Check 3: No more active pixels available to fill within the mask (per batch item)
         # Active mask is [B, H, W], sum over H, W -> [B]
-        no_more_active = (self.active_mask & (self.grid == 0) & (self.mask > 0)).sum(dim=(1,2)) == 0
+        # Simplified: self.mask > 0 is always true
+        no_more_active = (self.active_mask & (self.grid == 0)).sum(dim=(1,2)) == 0
 
         # Complete if *both* saturated AND no more active pixels for that batch item
         # Use logical AND element-wise for the batch
@@ -482,14 +471,12 @@ class OrganicFillNode:
                 "input_image": ("IMAGE", {}),  # BHWC RGB or Gray (float 0-1)
             },
             "optional": {
-                 # If SAM_map is provided, it acts as the base_mask after thresholding.
-                 # If not provided, base_mask becomes the full image area.
                 "SAM_map": ("IMAGE", {}),      # Optional: BHWC/HWC Probability Map (float 0-1)
                 "depth_map": ("IMAGE", {}),    # Optional: BHWC/HWC Depth Map (float 0-1)
                 "canny_map": ("IMAGE", {}),    # Optional: BHWC/HWC Canny Edges (float 0-1)
                 "start_field": ( [sf.value for sf in StartField], {"default": StartField.CENTER.value} ),
                 "pulsate_strength": ("FLOAT", {"default": 0.0, "min":0.0, "max":1.0, "step":0.01}),
-                "directional_flow": ("BOOLEAN", {"default": False}), # Bias growth based on depth gradient
+                "directional_flow": ("FLOAT", {"default": 0.0, "min":0.0, "max":2.0, "step":0.05}), # Strength of depth gradient bias
                 "branch_awareness": ("FLOAT", {"default": 0.0, "min":0.0, "max":1.0, "step":0.01}), # Prefer skeleton
                 "max_steps": ("INT", {"default":2000, "min":1, "max":10000}),
                 "growth_threshold": ("FLOAT", {"default": 0.6, "min": 0.0, "max": 1.0, "step": 0.01}),
@@ -517,7 +504,7 @@ class OrganicFillNode:
                 canny_map: Optional[torch.Tensor] = None, # BHWC/HWC
                 start_field: str = StartField.CENTER.value,
                 pulsate_strength: float = 0.0,
-                directional_flow: bool = False,
+                directional_flow: float = 0.0,
                 branch_awareness: float = 0.0,
                 max_steps: int = 2000,
                 growth_threshold: float = 0.6,
@@ -552,11 +539,9 @@ class OrganicFillNode:
                 SAM_map = F.interpolate(SAM_map.permute(0,3,1,2), size=(H,W), mode='bilinear', align_corners=False).permute(0,2,3,1)
 
             sam_prob = SAM_map[..., 0] # Use first channel as probability [B, H, W]
-            base_mask = (sam_prob > 0.5).float() # Threshold to get binary mask [B, H, W]
-            print(f"Base mask created from SAM map. Shape: {base_mask.shape}")
-        else:
-            print("No SAM map provided. Base mask covers the entire image.")
-            base_mask = torch.ones((B, H, W), dtype=torch.float32, device=device)
+
+
+        base_mask = torch.ones((B, H, W), dtype=torch.float32, device=device)
 
         # --- Prepare Optional Auxiliary Maps ---
         # Helper to ensure maps are [B, H, W], float, on correct device
@@ -603,7 +588,6 @@ class OrganicFillNode:
 
         depth_map_bhw = _prep_aux(depth_map, "Depth")
         canny_map_bhw = _prep_aux(canny_map, "Canny")
-        # SAM map was already handled for base_mask, but we need the probability map for confidence
         # Re-use the prepared SAM_map if it existed, otherwise it's None
         sam_prob_bhw = _prep_aux(SAM_map, "SAM_Prob") if SAM_map is not None else None
 
@@ -623,7 +607,7 @@ class OrganicFillNode:
 
         fill = OrganicFillBatch(
             input_image=input_image, # Pass original BHWC image
-            base_mask=base_mask,     # Pass BHW mask (full or from SAM)
+            base_mask=base_mask,     # Pass BHW mask
             depth=depth_map_bhw,     # Pass BHW depth
             canny=canny_map_bhw,     # Pass BHW canny
             sem=sam_prob_bhw,        # Pass BHW semantic probability
@@ -757,7 +741,7 @@ if __name__ == "__main__":
             "max_steps": test_config.get("max_steps", 500),
             "start_field": test_config.get("start_field", StartField.CENTER.value),
             "pulsate_strength": test_config.get("pulsate_strength", 0.0),
-            "directional_flow": test_config.get("directional_flow", False),
+            "directional_flow": test_config.get("directional_flow", 0.0),
             "branch_awareness": test_config.get("branch_awareness", 0.0),
             "growth_threshold": test_config.get("growth_threshold", 0.6),
             "seed_radius": test_config.get("seed_radius", 5),
@@ -808,19 +792,18 @@ if __name__ == "__main__":
             "name": "img2_depth_only",
             "input": os.path.join(test_dir, "img2.jpg"),
             "depth": os.path.join(test_dir, "img2_depth.jpg"),
-            "max_steps": 300,
-            "start_field": StartField.CENTER.value,
+            "max_steps": 1000,
+            "start_field": StartField.BOTTOM_CENTER.value,
             "lab_gradient_scale": 10.0,
         },
         {   # Test 2: Input + Depth + Canny
-            "name": "img2_depth_canny",
+            "name": "img2_depth_only",
             "input": os.path.join(test_dir, "img2.jpg"),
             "depth": os.path.join(test_dir, "img2_depth.jpg"),
-            "canny": os.path.join(test_dir, "img2_canny.jpg"),
-            "start_field": StartField.CLOSEST_POINT.value, # Use depth minimum
-            "directional_flow": True,
-            "branch_awareness": 0.3, # Should be ignored as no SAM mask -> full base mask
-            "max_steps": 500
+            #"canny": os.path.join(test_dir, "img2_scribble.jpg"),
+            "start_field": StartField.BOTTOM_CENTER.value,
+            #"directional_flow": 0.5, # Set strength instead of bool
+            "max_steps": 1000
         }
     ]
 
