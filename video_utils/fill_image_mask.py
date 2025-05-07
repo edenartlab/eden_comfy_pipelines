@@ -10,8 +10,11 @@ from typing import Tuple, Optional, List, Dict, Any
 from PIL import Image
 from torchvision.transforms import ToTensor, ToPILImage, Resize
 
-# Import utilities from the new file
-from .fill_utils import *
+# Hacky way to get this to work as module and standalone script (for testing)
+try:
+    from fill_utils import *
+except:
+    from .fill_utils import *
 
 # ────────────────────────────────────────────────────────────────────────────────
 #  CONFIG & ENUMS
@@ -797,10 +800,19 @@ if __name__ == "__main__":
             "lab_gradient_scale": 10.0,
         },
         {   # Test 2: Input + Depth + Canny
-            "name": "img2_depth_only",
+            "name": "img2_depth_scribble",
             "input": os.path.join(test_dir, "img2.jpg"),
             "depth": os.path.join(test_dir, "img2_depth.jpg"),
-            #"canny": os.path.join(test_dir, "img2_scribble.jpg"),
+            "canny": os.path.join(test_dir, "img2_scribble.jpg"),
+            "start_field": StartField.BOTTOM_CENTER.value,
+            #"directional_flow": 0.5, # Set strength instead of bool
+            "max_steps": 1000
+        },
+        {   # Test 2: Input + Depth + Canny
+            "name": "pannehuis_depth_scribble",
+            "input": os.path.join(test_dir, "pannehuis.jpeg"),
+            "depth": os.path.join(test_dir, "pannehuis_depth.jpg"),
+            "canny": os.path.join(test_dir, "pannehuis_canny.jpg"),
             "start_field": StartField.BOTTOM_CENTER.value,
             #"directional_flow": 0.5, # Set strength instead of bool
             "max_steps": 1000
