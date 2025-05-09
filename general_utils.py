@@ -978,132 +978,180 @@ def load_path(path: str) -> Union[str, List[str]]:
             
     raise FileNotFoundError(f"Could not find file or directory at {path} or {input_path}")
 
-def extract_frames_from_video(video_path: str, force_rate: float = 0.0, 
-                              image_load_cap: int = 0, max_res: int = 0):
+def _extract_frames_from_video_generator(video_path: str, force_rate: float = 0.0,
+                                         image_load_cap: int = 0, max_res: int = 0):
     """
-    Extract frames from a video file using only OpenCV (no ffprobe).
+    Extracts frames from a video file using OpenCV, yielding them as NumPy arrays.
+    Yields:
+        Tuple: (fps, num_frames_to_yield, first_frame_width, first_frame_height)
+        np.ndarray: Processed frame (H, W, C) as float32, normalized 0-1.
     """
-    # Open video file with OpenCV
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         raise ValueError(f"Cannot open video file: {video_path}")
-    
-    # Get video properties directly from OpenCV
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    
-    # Calculate frame interval for force_rate
+
+    original_fps = cap.get(cv2.CAP_PROP_FPS)
+    total_frames_in_video = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
     frame_interval = 1
-    if force_rate > 0 and fps > 0:
-        frame_interval = max(1, round(fps / force_rate))
-    
-    # Calculate how many frames we'll extract
+    if force_rate > 0 and original_fps > 0:
+        frame_interval = max(1, round(original_fps / force_rate))
+
+    # Calculate how many frames we'll actually try to extract
+    potential_frames_to_extract = (total_frames_in_video + frame_interval - 1) // frame_interval
     if image_load_cap > 0:
-        num_frames = min(image_load_cap, (total_frames + frame_interval - 1) // frame_interval)
+        num_frames_to_yield = min(image_load_cap, potential_frames_to_extract)
     else:
-        num_frames = (total_frames + frame_interval - 1) // frame_interval
+        num_frames_to_yield = potential_frames_to_extract
+
+    if num_frames_to_yield == 0 and total_frames_in_video > 0: # if cap is 0 but video has frames, yield all based on interval
+        num_frames_to_yield = potential_frames_to_extract
+    elif num_frames_to_yield == 0 and total_frames_in_video == 0:
+        cap.release()
+        raise ValueError(f"No frames to extract from video: {video_path}")
+
+
+    # Yield metadata: fps to report, num_frames_actually_yielded, first_frame_w, first_frame_h
+    # For first_frame_w, first_frame_h, we need to read one frame
+    first_frame_pil = None
+    first_frame_w, first_frame_h = 0, 0
+
+    if num_frames_to_yield > 0:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, 0) # Start from the beginning for the first frame
+        ret, frame_cv = cap.read()
+        if ret:
+            frame_cv = cv2.cvtColor(frame_cv, cv2.COLOR_BGR2RGB)
+            first_frame_pil = Image.fromarray(frame_cv)
+            if max_res > 0:
+                first_frame_pil = resize_image_max_size(first_frame_pil, max_res)
+            first_frame_w, first_frame_h = first_frame_pil.size
+        else: # Video might be empty or unreadable
+            cap.release()
+            raise ValueError(f"Could not read the first frame from video: {video_path}")
     
-    # Extract frames
-    frames = []
-    frame_count = 0
-    frame_idx = 0
-    
-    while frame_count < num_frames:
-        # Set the frame position
-        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
-        ret, frame = cap.read()
-        
+    reported_fps = force_rate if force_rate > 0 else original_fps
+    yield (reported_fps, num_frames_to_yield, first_frame_w, first_frame_h)
+
+    # Now yield the first frame if it was processed
+    if first_frame_pil:
+        if first_frame_pil.mode != 'RGB':
+            first_frame_pil = first_frame_pil.convert('RGB')
+        np_frame = np.array(first_frame_pil).astype(np.float32) / 255.0
+        yield np_frame
+        frames_yielded_count = 1
+        current_frame_index_in_video = frame_interval # Next frame to read
+    else: # Should not happen if num_frames_to_yield > 0 and first frame read failed
+        frames_yielded_count = 0
+        current_frame_index_in_video = 0
+
+
+    while frames_yielded_count < num_frames_to_yield:
+        if current_frame_index_in_video >= total_frames_in_video:
+            break 
+            
+        cap.set(cv2.CAP_PROP_POS_FRAMES, current_frame_index_in_video)
+        ret, frame_cv = cap.read()
+
         if not ret:
             break
-        
-        # Convert BGR to RGB
-        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        
-        # Convert to PIL image for processing
-        pil_image = Image.fromarray(frame)
-        
-        # Resize if needed
+
+        frame_cv = cv2.cvtColor(frame_cv, cv2.COLOR_BGR2RGB)
+        pil_image = Image.fromarray(frame_cv)
+
         if max_res > 0:
             pil_image = resize_image_max_size(pil_image, max_res)
         
-        # Convert to tensor and add to list
-        tensor = pil_to_tensor(pil_image)
-        frames.append(tensor)
-        
-        frame_count += 1
-        frame_idx += frame_interval
-        
-        if frame_idx >= total_frames:
-            break
+        if pil_image.mode != 'RGB':
+            pil_image = pil_image.convert('RGB')
+        np_frame = np.array(pil_image).astype(np.float32) / 255.0
+        yield np_frame
+
+        frames_yielded_count += 1
+        current_frame_index_in_video += frame_interval
     
     cap.release()
-    
-    if not frames:
-        raise ValueError(f"No frames extracted from video: {video_path}")
-    
-    return frames, fps, len(frames)
 
-def process_gif(gif_path: str, force_rate: float = 0.0, 
-                image_load_cap: int = 0, max_res: int = 0) -> Tuple[List[torch.Tensor], float, int]:
+def _process_gif_generator(gif_path: str, force_rate: float = 0.0,
+                           image_load_cap: int = 0, max_res: int = 0):
     """
-    Process an animated GIF, extracting frames at a specified rate.
-    
-    Args:
-        gif_path: Path to the GIF file
-        force_rate: Target FPS (0 means use original rate)
-        image_load_cap: Maximum number of frames to extract (0 means all)
-        max_res: Maximum resolution for width or height (0 means no resize)
-    
-    Returns:
-        Tuple of (frames as tensors, original fps, frame count)
+    Processes an animated GIF, yielding frames as NumPy arrays.
+    Yields:
+        Tuple: (fps, num_frames_to_yield, first_frame_width, first_frame_height)
+        np.ndarray: Processed frame (H, W, C) as float32, normalized 0-1.
     """
     gif = Image.open(gif_path)
-    
+
     if not getattr(gif, "is_animated", False):
-        # Not an animated GIF, treat as a single image
+        # Not animated, treat as single image
         if max_res > 0:
             gif = resize_image_max_size(gif, max_res)
-        return [pil_to_tensor(gif.convert("RGB"))], 0.0, 1
-    
-    # Get original FPS from GIF
+        
+        img_rgb = gif.convert("RGB")
+        w, h = img_rgb.size
+        np_frame = np.array(img_rgb).astype(np.float32) / 255.0
+        yield (0.0, 1, w, h) # fps, count, w, h
+        yield np_frame
+        return
+
     try:
-        gif_fps = 1000 / (gif.info.get('duration', 100))  # Default 10 FPS if not specified
+        original_gif_fps = 1000 / (gif.info.get('duration', 100))
     except (ZeroDivisionError, TypeError):
-        gif_fps = 10.0
-    
-    # Calculate frame interval for force_rate
+        original_gif_fps = 10.0
+
     frame_interval = 1
-    if force_rate > 0 and gif_fps > 0:
-        frame_interval = max(1, round(gif_fps / force_rate))
+    if force_rate > 0 and original_gif_fps > 0:
+        frame_interval = max(1, round(original_gif_fps / force_rate))
+
+    # Calculate how many frames we'll actually try to extract
+    # ImageSequence.Iterator doesn't give total frames easily, so we iterate once to count if needed for image_load_cap.
+    # Or, better, we just cap as we go.
     
-    # Extract frames
-    frames = []
-    frame_count = 0
+    # Determine num_frames_to_yield and first frame dimensions
+    first_frame_pil = None
+    first_frame_w, first_frame_h = 0, 0
     
-    for i, frame in enumerate(ImageSequence.Iterator(gif)):
+    # Peek at the first frame for dimensions and to help determine num_frames_to_yield
+    # We need to iterate to know the true number of frames available after interval.
+    
+    preview_frames_count = 0
+    temp_iterator = ImageSequence.Iterator(gif)
+    for i, frame_pil_peek in enumerate(temp_iterator):
+        if i % frame_interval == 0:
+            if preview_frames_count == 0: # This is the first frame we'd process
+                frame_pil_peek_proc = frame_pil_peek.convert("RGB")
+                if max_res > 0:
+                    frame_pil_peek_proc = resize_image_max_size(frame_pil_peek_proc, max_res)
+                first_frame_w, first_frame_h = frame_pil_peek_proc.size
+            preview_frames_count +=1
+
+    num_frames_to_yield = preview_frames_count
+    if image_load_cap > 0:
+        num_frames_to_yield = min(image_load_cap, preview_frames_count)
+
+    if num_frames_to_yield == 0:
+        raise ValueError(f"No frames to extract from GIF: {gif_path}")
+
+    reported_fps = force_rate if force_rate > 0 else original_gif_fps
+    yield (reported_fps, num_frames_to_yield, first_frame_w, first_frame_h)
+
+    frames_yielded_count = 0
+    for i, frame_pil in enumerate(ImageSequence.Iterator(gif)):
+        if frames_yielded_count >= num_frames_to_yield:
+            break
+            
         if i % frame_interval != 0:
             continue
             
-        # Convert and process frame
-        frame = frame.convert("RGB")
-        
-        # Resize if needed
+        frame_pil = frame_pil.convert("RGB")
         if max_res > 0:
-            frame = resize_image_max_size(frame, max_res)
+            frame_pil = resize_image_max_size(frame_pil, max_res)
         
-        # Convert to tensor
-        tensor = pil_to_tensor(frame)
-        frames.append(tensor)
-        
-        frame_count += 1
-        
-        if image_load_cap > 0 and frame_count >= image_load_cap:
-            break
-    
-    if not frames:
-        raise ValueError(f"No frames extracted from GIF: {gif_path}")
-    
-    return frames, gif_fps, len(frames)
+        np_frame = np.array(frame_pil).astype(np.float32) / 255.0
+        yield np_frame
+        frames_yielded_count += 1
+
+extract_frames_from_video = _extract_frames_from_video_generator
+process_gif = _process_gif_generator
 
 def load_single_image(image_path: str, max_res: int = 0) -> torch.Tensor:
     """
@@ -1219,26 +1267,58 @@ class Eden_AllMediaLoader:
             
             # Handle videos
             elif path.lower().endswith(('.mp4', '.mov')):
-                frames, fps, frame_count = extract_frames_from_video(
+                frame_generator = extract_frames_from_video(
                     path, force_rate, image_load_cap, max_res
                 )
-                images = concat_image_tensors(frames)
+                metadata = next(frame_generator)
+                fps, _, _, _ = metadata # width and height will be taken from stacked tensor
+
+                processed_frames_np = list(frame_generator)
+
+                if not processed_frames_np:
+                    raise ValueError(f"No frames extracted from video: {path}")
+
+                images_np_array = np.stack(processed_frames_np, axis=0)
+                images = torch.from_numpy(images_np_array)
                 
                 # Get dimensions from the first frame
-                b, h, w, c = images.shape
+                b, h, w, c = images.shape # B is frame_count
+                frame_count = b
                 file_name = os.path.basename(path).rsplit('.', 1)[0]
                 
                 return (images, w, h, frame_count, file_name, path, fps)
             
             # Handle GIFs
             elif path.lower().endswith('.gif'):
-                frames, fps, frame_count = process_gif(
+                gif_generator = process_gif(
                     path, force_rate, image_load_cap, max_res
                 )
-                images = concat_image_tensors(frames)
+                metadata = next(gif_generator)
+                fps, _, _, _ = metadata # width and height will be taken from stacked tensor
+
+                processed_frames_np = list(gif_generator)
+
+                if not processed_frames_np:
+                    # This can happen if GIF was non-animated and yielded 0 frames before metadata
+                    # or if image_load_cap was 0 for a non-animated GIF.
+                    # The generator itself handles non-animated by yielding 1 frame.
+                    # Let's re-check process_gif logic if this error occurs.
+                    # For now, assume list has items if generator didn't raise error.
+                    if os.path.getsize(path) > 0 : # Check if file has content
+                         # if it's a single frame gif, it should have been handled by the gen.
+                         # if it's animated and no frames, then it's an issue.
+                         # The new _process_gif_generator handles single frame gifs correctly by yielding one frame.
+                         # So if processed_frames_np is empty here, it is likely an issue.
+                         raise ValueError(f"No frames extracted from GIF: {path}. It might be empty or corrupt.")
+                    else: # File is empty
+                        raise ValueError(f"GIF file is empty: {path}")
+
+
+                images_np_array = np.stack(processed_frames_np, axis=0)
+                images = torch.from_numpy(images_np_array)
                 
-                # Get dimensions from the first frame
-                b, h, w, c = images.shape
+                b, h, w, c = images.shape # B is frame_count
+                frame_count = b
                 file_name = os.path.basename(path).rsplit('.', 1)[0]
                 
                 return (images, w, h, frame_count, file_name, path, fps)
@@ -1473,6 +1553,8 @@ class Eden_Save_Param_Dict:
                 for attr in dir(obj):
                     if not attr.startswith('_') and not callable(getattr(obj, attr)):
                         props[attr] = self._make_serializable(getattr(obj, attr), attr)
+                if not props: # If no public attributes, just return string representation
+                    return str(obj)
                 return {"_type": type(obj).__name__, "properties": props}
             except:
                 return str(obj)
