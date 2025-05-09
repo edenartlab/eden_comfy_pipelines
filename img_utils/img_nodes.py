@@ -416,8 +416,10 @@ class MaskFromRGB_KMeans:
         if torch.cuda.is_available():
             device = torch.device('cuda')
         elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+            print("--- Warning: Using MPS backend, ensure your PyTorch version supports it.")
             device = torch.device('mps')
         else:
+            print("--- Warning: No GPU available for running MaskfromRGB_Kmeans, using CPU...")
             device = torch.device('cpu')
             
         # Store original device
