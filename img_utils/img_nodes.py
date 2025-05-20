@@ -191,8 +191,8 @@ class WidthHeightPicker:
     @classmethod
     def INPUT_TYPES(s):
         return {"required": 
-                    {"width":  ("INT", {"default": 512, "min": -sys.maxsize, "max": sys.maxsize}),
-                     "height":  ("INT", {"default": 512, "min": -sys.maxsize, "max": sys.maxsize}),
+                    {"width":  ("INT", {"default": 512, "min": 0, "max": sys.maxsize}),
+                     "height":  ("INT", {"default": 512, "min": 0, "max": sys.maxsize}),
                      "output_multiplier":  ("FLOAT", {"default": 0.5}),
                      "multiple_off":  ("INT", {"default": 64, "min": 1, "max": 264}),
                      }
