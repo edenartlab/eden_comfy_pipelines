@@ -8,7 +8,7 @@ from img_utils.depth_nodes import *
 from img_utils.gpt_nodes import *
 from img_utils.hist_matcher import HistogramMatching
 from logic.logic_nodes import *
-from img_utils.animation import Animation_RGB_Mask
+from img_utils.animation import Animation_RGB_Mask, AnimatedShapeMaskNode
 from video_utils.gradient_mask_video import KeyframeBlender, MaskedRegionVideoExport
 from ip_adapter_utils.moodmix_utils import *
 from video_utils.video_interpolation import VideoFrameSelector
@@ -39,6 +39,7 @@ NODE_CLASS_MAPPINGS = {
     "MaskFromRGB_KMeans": MaskFromRGB_KMeans,
     "GetRandomFile": GetRandomFile,
     "Animation_RGB_Mask": Animation_RGB_Mask,
+    "AnimatedShapeMaskNode": AnimatedShapeMaskNode,
     "ImageDescriptionNode": ImageDescriptionNode,
     "Eden_gpt4_node": Eden_gpt4_node,
     "Eden_GPTPromptEnhancer": Eden_GPTPromptEnhancer,
@@ -94,7 +95,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "Eden_RandomFilepathSampler": "Random Filepath Sampler 🎲",
     "Eden_AllMediaLoader": "All Media Loader 📁",
     "Eden_Save_Param_Dict": "Save Param Dict 📁",
-    "OrganicFillNode": "Organic Fill Mask Animation"
+    "OrganicFillNode": "Organic Fill Mask Animation",
+    "AnimatedShapeMaskNode": "Animated Shape Mask"
 }
 
 try:

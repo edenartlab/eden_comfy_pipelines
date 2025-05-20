@@ -5,6 +5,8 @@ https://github.com/theUpsider/ComfyUI-Logic/tree/fb8897351f715ea75eebf52e74515b6
 
 """
 
+import sys 
+
 class AnyType(str):
     def __ne__(self, __value: object) -> bool:
         return False
@@ -31,7 +33,7 @@ class Eden_Int:
     @classmethod
     def INPUT_TYPES(s):
         return {
-            "required": {"value": ("INT", {"default": 0})},
+            "required": {"value": ("INT", {"min": -sys.maxsize, "max": sys.maxsize, "default": 0})},
         }
 
     RETURN_TYPES = ("INT",)
