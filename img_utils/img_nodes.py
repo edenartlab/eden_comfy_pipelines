@@ -1,4 +1,4 @@
-import os, time
+import os, time, sys
 import cv2
 import numpy as np
 import random
@@ -191,8 +191,8 @@ class WidthHeightPicker:
     @classmethod
     def INPUT_TYPES(s):
         return {"required": 
-                    {"width":  ("INT", {"default": 512}),
-                     "height":  ("INT", {"default": 512}),
+                    {"width":  ("INT", {"default": 512, "min": -sys.maxsize, "max": sys.maxsize}),
+                     "height":  ("INT", {"default": 512, "min": -sys.maxsize, "max": sys.maxsize}),
                      "output_multiplier":  ("FLOAT", {"default": 0.5}),
                      "multiple_off":  ("INT", {"default": 64, "min": 1, "max": 264}),
                      }
