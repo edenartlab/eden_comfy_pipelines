@@ -1578,7 +1578,7 @@ class LoadImagesByFilename:
         return {
             "required": {
                     "filename": ("COMBO", {"default": []}),
-                    "max_num_images": ("INT", {"default": None}),
+                    "max_num_images": ("INT", {"default": None, "min": 0, "max": sys.maxsize}),
                     "seed": ("INT", {"default": 0, "min": 0, "max": 100000}),
                     "sort": ("BOOLEAN", {"default": False}),
                     "loop_sequence": ("BOOLEAN", {"default": False}),
@@ -2021,7 +2021,7 @@ class Extend_Sequence:
         return {
             "required": {
                 "images": ("IMAGE",),  # Input is a stack of images
-                "target_n_frames": ("INT", {"default": 24, "min": 1, "step": 1}),  # Desired output number of frames
+                "target_n_frames": ("INT", {"default": 24, "min": 1, "step": 1, "max": sys.maxsize}),  # Desired output number of frames
                 "mode": (["wrap_around", "ping_pong"], ),  # Various modes for handling the sequence
             }
         }

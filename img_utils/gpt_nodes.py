@@ -1,5 +1,5 @@
 import base64
-import io, os
+import io, os, sys
 from PIL import Image
 import numpy as np
 from openai import OpenAI
@@ -22,10 +22,10 @@ class Eden_gpt4_node:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "max_token": ("INT", {"default": 100}),
+                "max_token": ("INT", {"default": 100, "min": 1, "max": sys.maxsize}),
                 "model": (["gpt-4o", "gpt-4-turbo"], {"default": "gpt-4o"}),
                 "prompt": ("STRING", {"multiline": True, "default": "Write a poem about ComfyUI"}),
-                "seed": ("INT", {"default": 0}),
+                "seed": ("INT", {"default": 0, "min": 0, "max": sys.maxsize}),
             }
         }
 
@@ -70,14 +70,14 @@ class Eden_GPTPromptEnhancer:
                     "multiline": True,
                     "default": "Augment this visual description by adding specific details about lighting, scene elements, composition, and artistic style. Make it more descriptive and specific. Be bold and creative! Limit the final prompt to 100 words."
                 }),
-                "max_token": ("INT", {"default": 500}),
+                "max_token": ("INT", {"default": 500, "min": 1, "max": sys.maxsize}),
                 "model": ([
                     "gpt-4o",
                     "gpt-4o-mini",
                     "gpt-4-turbo",
                     "gpt-3.5-turbo",
                 ], {"default": "gpt-4o"}),
-                "seed": ("INT", {"default": 0}),
+                "seed": ("INT", {"default": 0, "min": 0, "max": sys.maxsize}),
             },
             "optional": {
                 "temperature": ("FLOAT", {
@@ -132,7 +132,7 @@ class ImageDescriptionNode:
         return {
             "required": {
                 "image": ("IMAGE",),
-                "max_token": ("INT", {"default": 100}),
+                "max_token": ("INT", {"default": 100, "min": 1, "max": sys.maxsize}),
                 "endpoint": ("STRING", {"multiline": False, "default": "https://api.openai.com/v1"}),
                 "model": (["gpt-4-vision Low", "gpt-4-vision High"], {"default": "gpt-4-vision Low"}),
                 "prompt": ("STRING", {"multiline": True, "default": "Consicely describe the content of the images. Respond with a single description per line (ending with a period and a newline character)."}),
@@ -208,9 +208,9 @@ class Eden_GPTStructuredOutput:
                     "multiline": True,
                     "default": '{\n  "type": "object",\n  "properties": {\n    "title": {"type": "string"},\n    "description": {"type": "string"},\n    "key_points": {"type": "array", "items": {"type": "string"}}\n  },\n  "required": ["title", "description", "key_points"]\n}'
                 }),
-                "max_tokens": ("INT", {"default": 1000}),
+                "max_tokens": ("INT", {"default": 1000, "min": 1, "max": sys.maxsize}),
                 "model": (["gpt-4o", "gpt-4-turbo"], {"default": "gpt-4o"}),
-                "seed": ("INT", {"default": 0}),
+                "seed": ("INT", {"default": 0, "min": 0, "max": sys.maxsize}),
             },
             "optional": {
                 "temperature": ("FLOAT", {

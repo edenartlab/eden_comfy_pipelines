@@ -274,7 +274,7 @@ class Eden_FloatToInt:
 class Eden_IntToFloat:
     @classmethod
     def INPUT_TYPES(cls) -> Mapping[str, Any]:
-        return {"required": {"a": ("INT", {"default": 0})}}
+        return {"required": {"a": ("INT", {"default": 0, "max": sys.maxsize})}}
 
     RETURN_TYPES = ("FLOAT",)
     FUNCTION = "op"
@@ -594,7 +594,7 @@ class Eden_randbool:
     @classmethod
     def INPUT_TYPES(s):
         return {"required": {
-                    "seed": ("INT", {"default": 0}),
+                    "seed": ("INT", {"default": 0, "max": sys.maxsize}),
                     "probability": ("FLOAT", {"default": 0.5}),
                 }
             }
@@ -1199,6 +1199,7 @@ class Eden_AllMediaLoader:
                 "image_load_cap": ("INT", {
                     "default": 0,
                     "min": 0,
+                    "max": sys.maxsize,
                     "step": 1,
                     "tooltip": "Maximum number of images to load. 0 means load all images."
                 }),
@@ -1211,6 +1212,7 @@ class Eden_AllMediaLoader:
                 "max_res": ("INT", {
                     "default": 2048,
                     "min": 0,
+                    "max": sys.maxsize,
                     "step": 1,
                     "tooltip": "Maximum resolution (width or height). Images larger than this will be resized. 0 means no resize."
                 }),

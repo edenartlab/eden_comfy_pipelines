@@ -7,6 +7,7 @@ import numpy as np
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
 from scipy.spatial.distance import cdist
+import sys
 
 class WeightedKMeans(KMeans):
     def __init__(self, n_clusters=8, weights=None, **kwargs):
@@ -94,7 +95,7 @@ class Eden_DepthSlice_MaskVideo:
                      "min_depth": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.01}),
                      "max_depth": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
                      "gamma_correction": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 10.0, "step": 0.1}),
-                     "n_frames": ("INT", {"default": 100}),
+                     "n_frames": ("INT", {"default": 100, "min": 1, "max": sys.maxsize}),
                      "reverse": ("BOOLEAN", {"default": False}),
                      "bounce": ("BOOLEAN", {"default": False}),
                      }
@@ -152,7 +153,7 @@ class DepthSlicer:
         return {"required": 
                     {"image": ("IMAGE",),
                      "depth_map":  ("IMAGE",),
-                     "n_slices":  ("INT", {"default": 2}),
+                     "n_slices":  ("INT", {"default": 2, "min": 1, "max": sys.maxsize}),
                      "rgb_weight":  ("FLOAT", {"default": 0.0, "step": 0.01}),
                      "standardize_features": ("BOOLEAN", {"default": False}),
                      }
@@ -182,7 +183,7 @@ class ParallaxZoom:
                  "foreground_zoom_factor": ("FLOAT", {"default": 1.1, "step": 0.001}),
                  "background_zoom_factor": ("FLOAT", {"default": 1.05, "step": 0.001}),
                  "pan_left": ("FLOAT", {"default": 0.1, "min": -1.0, "max": 1.0, "step": 0.001}),
-                 "n_frames": ("INT", {"default": 25}),
+                 "n_frames": ("INT", {"default": 25, "min": 1, "max": sys.maxsize}),
                  "loop": ("BOOLEAN", {"default": False}),
                 }
                }

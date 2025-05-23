@@ -2,6 +2,7 @@ import numpy as np
 import os
 import cv2
 import torch
+import sys
 
 class Animation:
     def __init__(self, width, height, total_frames, num_shades, bands_visible_per_frame, angle, mode):
@@ -187,8 +188,8 @@ class Animation_RGB_Mask:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "total_frames": ("INT", {"default": 64, "min": 1}),
-                "num_colors": ("INT", {"default": 3, "min": 1}),
+                "total_frames": ("INT", {"default": 64, "min": 1, "max": sys.maxsize}),
+                "num_colors": ("INT", {"default": 3, "min": 1, "max": sys.maxsize}),
                 "bands_visible_per_frame": ("FLOAT", {"default": 1.0, "min": 0.1, "step": 0.01}),
                 "angle": ("FLOAT", {"default": 0, "min": 0, "max": 360}),
                 "mode": (["concentric_circles_inwards", "concentric_circles_outwards", 
@@ -197,8 +198,8 @@ class Animation_RGB_Mask:
                           "pushing_segments_clockwise", "pushing_segments_counter_clockwise", 
                           "vertical_stripes_left", "vertical_stripes_right", 
                           "horizontal_stripes_up", "horizontal_stripes_down"], ),
-                "width": ("INT", {"default": 512, "min": 24}),
-                "height": ("INT", {"default": 512, "min": 24}),
+                "width": ("INT", {"default": 512, "min": 24, "max": sys.maxsize}),
+                "height": ("INT", {"default": 512, "min": 24, "max": sys.maxsize}),
             }
         }
 
@@ -502,9 +503,9 @@ class AnimatedShapeMaskNode:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "width": ("INT", {"default": 512, "min": 24, "step": 8}),
-                "height": ("INT", {"default": 512, "min": 24, "step": 8}),
-                "total_frames": ("INT", {"default": 64, "min": 1}),
+                "width": ("INT", {"default": 512, "min": 24, "step": 8, "max": sys.maxsize}),
+                "height": ("INT", {"default": 512, "min": 24, "step": 8, "max": sys.maxsize}),
+                "total_frames": ("INT", {"default": 64, "min": 1, "max": sys.maxsize}),
                 "num_shades": ("INT", {"default": 2, "min": 2, "max": 256}), # Min 2 for black/white
                 "mode": (["moving_band_horizontal_td", "moving_band_horizontal_bu",
                           "moving_band_vertical_lr", "moving_band_vertical_rl",
