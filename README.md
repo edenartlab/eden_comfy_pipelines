@@ -1,118 +1,19 @@
 <div align="center">
   <img src="assets/eden.png" alt="Eden.art Logo" width="300">
-  <h1>Eden.art Custom Node Suite for ComfyUI</h1>
-  <p>A collection of powerful custom nodes and workflows developed by <a href="https://www.eden.art/">Eden</a></p>
-  <br>
+  <h1>🌱 Eden ComfyUI Custom Node Suite</h1>
+  <p>A comprehensive collection of specialized ComfyUI nodes for advanced generative AI workflows</p>
+  <p><strong>Developed by <a href="https://www.eden.art/">Eden.art</a></strong></p>
 </div>
 
-This repository contains a comprehensive suite of specialized ComfyUI nodes designed to enhance our generative workflows. While some nodes may not be fully documented here yet, they are actively used in [our workflows repository](https://github.com/edenartlab/workflows) which powers many of the creative AI tools on **https://www.eden.art/**
-
-## 🤝 Contributing
-
-We welcome contributions! If you want to contribute custom ComfyUI workflows as tools into our creative AI agent ecosystem, please checkout our in-production workflows repository:
-https://github.com/edenartlab/workflows
-
-## 🌟 Featured Nodes
-
-### GPT4 Node
-<img src="assets/eden_gpt4_node.jpg" alt="GPT4 Node" width="50%">
-
-**Call GPT4 for Text Completion**
-- Versatile node that provides seamless integration with the OpenAI API
-- Configuration: Place a `.env` file containing your API key in your root ComfyUI folder
-
 ---
 
-### GPT4 Vision Node
-<img src="assets/imagedescriptionnode.jpg" alt="GPT4 Vision Node" width="50%">
+## 📖 Overview
 
-**Image Captioning and Visual Understanding**
-- Interprets images and generates detailed, contextual descriptions
-- Configuration: Requires an `.env` file with your OpenAI API key in the root ComfyUI folder
+This repository contains 70+ custom ComfyUI nodes designed to enhance creative AI workflows with advanced image processing, depth manipulation, AI-powered text generation, logical operations, and sophisticated video effects. These nodes power many of the creative tools available on [Eden.art](https://www.eden.art/).
 
----
+## 🚀 Quick Start
 
-### Load Random Images
-<img src="assets/loadrandomimage.jpg" alt="LoadRandomImage Node" width="50%">
-
-**Dynamic Random Image Selection for Automated Workflows**
-- Queue your prompt multiple times to process different inputs through the same workflow
-- Automatically processes multiple images to maintain consistent aspect ratio and resolution
-
----
-
-### Color Clustering Mask Generator
-<img src="assets/maskfromrgb_kmeans.jpg" alt="maskfromrgb_kmeans Node" width="50%">
-
-**Generate Precise Masks Using Color Clustering**
-- Implements KMeans clustering algorithm to produce accurate segmentation masks
-- Particularly effective for creating AnimateDiff masks directly from source videos
-
----
-
-### DepthSlicer
-<img src="assets/depthslicer.jpg" alt="DepthSlicer Node" width="50%">
-
-**Create Targeted Masks from Depth Maps**
-- Creates segmentation along the z-axis to produce specific "depth slices"
-- Ideal for creative animations and precise inpainting applications
-
----
-
-### 3D Parallax Zoom
-<img src="assets/parallaxzoom.jpg" alt="Parallax Zoom Node" width="50%">
-
-**Create Immersive Three-Dimensional Effects**
-- Uses depth map and image data to generate Deforum-style 3D-zoom parallax videos
-- Adds spatial dimension and dynamic movement to static images
-
----
-
-### CLIP Interrogator
-<img src="assets/CLIP_interrogator.png" alt="CLIP Interrogator Node" width="50%">
-
-**Extract Detailed Text Descriptions from Images**
-- Based on the [clip-interrogator](https://github.com/pharmapsychotic/clip-interrogator) project
-- Key features:
-  - Optional model persistence in GPU memory with `keep_model_alive` parameter
-  - Configurable BLIP caption inclusion via `prepend_BLIP_caption` parameter
-  - Automatic prompt saving with `save_prompt_to_txt_file` option
-  - Installation note: If auto-download fails, manually clone https://huggingface.co/Salesforce/blip-image-captioning-large into ComfyUI/models/blip
-
----
-
-### VAEDecode to Folder
-<img src="assets/VAEDecode_to_folder.png" alt="VAE Decode to Folder Node" width="50%">
-
-**Direct-to-Disk VAE Decoding**
-- Saves decoded images directly to a specified directory
-- Enables rendering of extended video sequences with AnimateDiff
-- Note: Requires manual video compilation using ffmpeg afterward
-
----
-
-### Random Number Sampler
-<img src="assets/random_number.jpg" alt="Sample Uniform Random numbers" width="50%">
-
-**Sampling**
-- Visualizes the sampled number on top of the node using custom javascript
-
----
-
-### Enhanced SaveImage
-<img src="assets/SaveImage.png" alt="Save Image Node" width="50%">
-
-**Advanced Image Preservation Options**
-- Add timestamps to filenames for better organization
-- Automatically save the complete pipeline as a JSON file
-- Easily reference prompts and settings without loading the entire pipeline
-
----
-
-> **Note:** Some nodes in this collection are still under active development and may not be fully functional or documented.
-
-## 🔧 Installation
-
+### Installation
 ```bash
 cd ComfyUI/custom_nodes/
 git clone https://github.com/edenartlab/eden_comfy_pipelines.git
@@ -120,6 +21,208 @@ cd eden_comfy_pipelines
 pip install -r requirements.txt
 ```
 
-## 📜 License
+### OpenAI Setup (Optional)
+For GPT-powered nodes, create a `.env` file in your ComfyUI root directory:
+```
+OPENAI_API_KEY=your_api_key_here
+```
+
+---
+
+## 🎯 Node Categories
+
+### 🤖 AI & GPT Integration
+
+#### **GPT4 Text Completion**
+<img src="assets/eden_gpt4_node.jpg" alt="GPT4 Node" width="400">
+
+Advanced text generation with GPT-4 integration:
+- **Eden_gpt4_node**: Direct GPT-4 API integration with customizable models (gpt-4o, gpt-4-turbo)
+- **Eden_GPTPromptEnhancer**: Intelligently enhance basic prompts with detailed descriptions and artistic elements
+- **Eden_GPTStructuredOutput**: Generate structured JSON responses following custom schemas
+
+#### **GPT4 Vision & Image Analysis**
+<img src="assets/imagedescriptionnode.jpg" alt="GPT4 Vision Node" width="400">
+
+Powerful image understanding capabilities:
+- **ImageDescriptionNode**: Generate detailed captions and descriptions from images
+- **CLIP_Interrogator**: Extract comprehensive text descriptions using CLIP + BLIP models
+
+---
+
+### 🖼️ Advanced Image Processing
+
+#### **Smart Image Loading & Management**
+<img src="assets/loadrandomimage.jpg" alt="LoadRandomImage Node" width="400">
+
+Intelligent batch processing tools:
+- **LoadRandomImage**: Process multiple images with automatic aspect ratio correction
+- **ImageFolderIterator**: Sequential image loading with index-based selection
+- **LoadImagesByFilename**: Batch load images by filename patterns
+
+#### **Precision Image Manipulation**
+<img src="assets/SaveImage.png" alt="Enhanced SaveImage Node" width="400">
+
+Professional image handling:
+- **SaveImageAdvanced**: Enhanced saving with timestamps and metadata export
+- **VAEDecode_to_folder**: Direct-to-disk VAE decoding for long sequences
+- **IMG_padder/IMG_unpadder**: Smart padding with edge-color matching
+- **IMG_scaler**: Mathematical operations on pixel values
+- **IMG_blender**: Advanced image blending with weight control
+
+#### **Color & Mask Generation**
+<img src="assets/maskfromrgb_kmeans.jpg" alt="Color Clustering Mask" width="400">
+
+Advanced segmentation tools:
+- **MaskFromRGB_KMeans**: Generate precise masks using K-means color clustering
+- **Eden_MaskCombiner**: Combine multiple masks with sophisticated blending
+- **ConvertToGrayscale**: Professional grayscale conversion with alpha handling
+- **HistogramMatching**: Match color distributions between images
+
+---
+
+### 🎭 Face Processing & Detection
+
+Comprehensive face manipulation toolkit:
+- **Eden_FaceToMask**: Automatic face detection and mask generation using MediaPipe
+- **Eden_Face_Crop**: Intelligent face cropping with padding and boundary handling
+- **Eden_ImageMaskComposite**: Advanced image compositing with mask support
+
+---
+
+### 📐 Depth & 3D Effects
+
+#### **Depth Analysis & Manipulation**
+<img src="assets/depthslicer.jpg" alt="DepthSlicer Node" width="400">
+
+Create stunning depth-based effects:
+- **DepthSlicer**: Generate targeted masks from depth maps using K-means clustering
+- **Eden_DepthSlice_MaskVideo**: Animated depth slicing for video sequences
+- **ParallaxZoom**: 3D parallax effects from depth maps
+
+#### **3D Parallax Animation**
+<img src="assets/parallaxzoom.jpg" alt="Parallax Zoom Effect" width="400">
+
+- **ParallaxZoom**: Create immersive Deforum-style 3D zoom effects
+- **AspectPadImageForOutpainting**: Intelligent padding for consistent aspect ratios
+
+---
+
+### 🎲 Logic & Control Flow
+
+#### **Data Types & Comparisons**
+<img src="assets/random_number.jpg" alt="Random Number Sampler" width="400">
+
+Essential workflow control nodes:
+- **Eden_RandomNumberSampler**: Visual random number generation with live display
+- **Eden_Compare**: Advanced comparison operations for any data type
+- **Eden_IfExecute**: Conditional execution based on boolean logic
+- **Eden_BoolBinaryOperation**: Boolean algebra operations (AND, OR, XOR, etc.)
+
+#### **Utilities & Conversion**
+- **Eden_String/Int/Float/Bool**: Type conversion and value passing
+- **Eden_Math**: Mathematical operations on numeric values
+- **Eden_StringHash**: Generate deterministic hashes from strings
+- **Eden_Debug_Anything**: Comprehensive debugging with type analysis
+
+---
+
+### 📁 File & Data Management
+
+#### **File Operations**
+- **GetRandomFile**: Random file selection from directories
+- **FolderScanner**: Comprehensive folder analysis and file listing
+- **Eden_AllMediaLoader**: Load various media types with validation
+- **Eden_Save_Param_Dict**: Export workflow parameters as JSON
+
+#### **Random Sampling & Selection**
+- **Eden_RandomFilepathSampler**: Statistical file path sampling
+- **Eden_RandomPromptFromFile**: Load random prompts from text files
+- **Eden_randbool**: Random boolean generation with probability control
+
+---
+
+### 🎬 Video & Animation
+
+#### **Video Processing**
+<img src="assets/parallaxzoom.jpg" alt="Video Effects" width="400">
+
+Advanced video manipulation:
+- **VideoFrameSelector**: Intelligent frame selection with temporal optimization
+- **KeyframeBlender**: Smooth keyframe interpolation for animations
+- **MaskedRegionVideoExport**: Export specific regions from video sequences
+- **Extend_Sequence**: Loop and extend video sequences with various modes
+
+#### **Animation Tools**
+- **Animation_RGB_Mask**: Create animated masks from RGB data
+- **AnimatedShapeMaskNode**: Generate animated geometric masks
+- **OrganicFillNode**: Organic mask filling for seamless animations
+
+---
+
+### 🔄 IP Adapter & Embeddings
+
+Advanced conditioning and style transfer:
+- **Random_Style_Mixture**: Blend multiple style embeddings randomly
+- **Linear_Combine_IP_Embeds**: Linear combination of IP adapter embeddings
+- **SavePosEmbeds/Load_Embeddings_From_Folder**: Embedding management system
+- **IP_Adapter_Settings_Distribution**: Control IP adapter influence distribution
+
+---
+
+## 🎨 Featured Workflows
+
+The repository includes example workflows in `example_workflows/` showcasing:
+- **3D Animation**: Depth-based parallax effects
+- **Audio Processing**: Stem separation and audio manipulation  
+- **Face Styling**: Expression transfer and face manipulation
+- **Video Effects**: Frame blending and time remapping
+- **AI Generation**: FLUX, SDXL, and other model workflows
+
+---
+
+## 🛠️ Technical Features
+
+### **Memory Optimization**
+- **LatentTypeConversion**: Convert between float16/float32 for memory efficiency
+- **Eden_RepeatLatentBatch**: Efficient latent batch processing
+- Smart tensor management across GPU/CPU
+
+### **Resolution & Aspect Ratio**
+- **WidthHeightPicker**: Smart resolution selection with multiple constraints
+- **IMG_resolution_multiple_of**: Ensure dimensions are multiples of specific values
+- **AspectPadImageForOutpainting**: Professional aspect ratio handling
+
+### **String & Text Processing**
+- **Eden_StringReplace**: Advanced string replacement with regex support
+- **Eden_Regex_Replace**: Powerful regex pattern matching
+- **Eden_RandomPromptFromFile**: Dynamic prompt loading from files
+
+---
+
+## 🎯 Use Cases
+
+- **Creative AI Workflows**: Professional image and video generation
+- **Batch Processing**: Automated processing of large image sets
+- **3D Effects**: Depth-based animations and parallax effects  
+- **Face Processing**: Portrait enhancement and manipulation
+- **Content Creation**: Automated caption generation and description
+- **Video Production**: Advanced video effects and frame manipulation
+- **Research & Development**: Experimental AI workflows and testing
+
+---
+
+## 📚 Contributing
+
+We welcome contributions! For workflow contributions, check out our production workflows repository: [edenartlab/workflows](https://github.com/edenartlab/workflows)
+
+## 📄 License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
+
+---
+
+<div align="center">
+  <p><strong>🌱 Built with ❤️ by the Eden.art team</strong></p>
+  <p><a href="https://www.eden.art/">Visit Eden.art</a> | <a href="https://github.com/edenartlab/workflows">Production Workflows</a></p>
+</div>
