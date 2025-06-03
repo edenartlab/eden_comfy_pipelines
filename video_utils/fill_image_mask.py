@@ -35,7 +35,9 @@ class StartField(Enum):
 @dataclass
 class FillNodeConfig:
     growth_threshold: float = 0.6
+    stability_threshold: int = 20
     active_region_padding: int = 3
+    seed_radius: int = 6
     noise_low: float = 0.0
     noise_high: float = 1.2
     saturation_window: int = 15
@@ -330,8 +332,7 @@ class OrganicFillBatch:
             # Apply circular seed around (y, x), respecting the mask `m`
             yy, xx = torch.meshgrid(torch.arange(H,device=self.device), torch.arange(W,device=self.device), indexing='ij')
             dist_sq = (yy - y)**2 + (xx - x)**2
-            seed_radius = 6
-            circle = dist_sq <= seed_radius**2 # The actual seed shape
+            circle = dist_sq <= self.cfg.seed_radius**2 # The actual seed shape
             self.grid[b][circle] = 1.0 # Simplified: m is True
 
     # ────────────────────────────────────────────────────────────────────────
@@ -341,8 +342,7 @@ class OrganicFillBatch:
         self.activity_counter[new_growth] = 0
         self.activity_counter[~new_growth] += 1
         # Pixels that have been stable (not grown) for a while
-        stability_threshold = 20
-        stable = self.activity_counter >= stability_threshold
+        stable = self.activity_counter >= self.cfg.stability_threshold
 
         # Active region is defined around pixels that are *not* stable
         active_area = ~stable
@@ -452,6 +452,9 @@ class OrganicFillNode:
 
     @classmethod
     def INPUT_TYPES(cls):
+        # Get default values from FillNodeConfig
+        default_config = FillNodeConfig()
+        
         return {
             "required": {
                 "input_image": ("IMAGE", {}),  # BHWC RGB or Gray (float 0-1)
@@ -462,9 +465,15 @@ class OrganicFillNode:
                 "canny_map": ("IMAGE", {}),    # Optional: BHWC/HWC Canny Edges (float 0-1)
                 "hed_map": ("IMAGE", {}),      # Optional: BHWC/HWC HED Edges (float 0-1)
                 "start_field": ( [sf.value for sf in StartField], {"default": StartField.CENTER.value} ),
-                "max_steps": ("INT", {"default":2000, "min":1, "max":10000}),
-                "growth_threshold": ("FLOAT", {"default": 0.6, "min": 0.0, "max": 1.0, "step": 0.01}),
-                "noise_low": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 2.0, "step": 0.01}),
+                "n_frames": ("INT", {"default": 100, "min": 1, "max":10000}),
+                "growth_threshold": ("FLOAT", {"default": 0.9, "min": 0.0, "max": 1.0, "step": 0.01}),
+                "weight_lab": ("FLOAT", {"default": default_config.weight_lab, "min": 0.0, "max": 5.0, "step": 0.01}),
+                "weight_sam": ("FLOAT", {"default": default_config.weight_sam, "min": 0.0, "max": 5.0, "step": 0.01}),
+                "weight_depth": ("FLOAT", {"default": default_config.weight_depth, "min": 0.0, "max": 5.0, "step": 0.01}),
+                "weight_canny": ("FLOAT", {"default": default_config.weight_canny, "min": 0.0, "max": 5.0, "step": 0.01}),
+                "weight_hed": ("FLOAT", {"default": default_config.weight_hed, "min": 0.0, "max": 5.0, "step": 0.01}),
+                "max_steps": ("INT", {"default": 5000, "min":1, "max":10000}),
+                "noise_low": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 2.0, "step": 0.01}),
                 "noise_high": ("FLOAT", {"default": 1.2, "min": 0.0, "max": 2.0, "step": 0.01}),
             }
         }
@@ -488,9 +497,15 @@ class OrganicFillNode:
                 hed_map: Optional[torch.Tensor] = None, # BHWC/HWC
                 start_field: str = StartField.CENTER.value,
                 max_steps: int = 2000,
+                n_frames: int = 20,
                 growth_threshold: float = 0.6,
                 noise_low: float = 0.0,
-                noise_high: float = 1.2
+                noise_high: float = 1.2,
+                weight_lab: Optional[float] = None,
+                weight_sam: Optional[float] = None,
+                weight_depth: Optional[float] = None,
+                weight_canny: Optional[float] = None,
+                weight_hed: Optional[float] = None
                 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]: # Return mask BHW, frames NBHWC, grow_prob BHW, overlayed_fill_preview NHWC
 
         start_time = time.time()
@@ -595,12 +610,27 @@ class OrganicFillNode:
         sam_rgb_bhwc = _prep_sam_rgb(SAM_map)
 
         # --- Configure and Initialize Fill ---
-        cfg = FillNodeConfig(
-            growth_threshold=growth_threshold,
-            noise_low=noise_low,
-            noise_high=noise_high,
-            device=device
-        )
+        # Create config kwargs, only including non-None weight values
+        config_kwargs = {
+            'growth_threshold': growth_threshold,
+            'noise_low': noise_low,
+            'noise_high': noise_high,
+            'device': device
+        }
+        
+        # Add weight parameters only if they are provided (not None)
+        if weight_lab is not None:
+            config_kwargs['weight_lab'] = weight_lab
+        if weight_sam is not None:
+            config_kwargs['weight_sam'] = weight_sam
+        if weight_depth is not None:
+            config_kwargs['weight_depth'] = weight_depth
+        if weight_canny is not None:
+            config_kwargs['weight_canny'] = weight_canny
+        if weight_hed is not None:
+            config_kwargs['weight_hed'] = weight_hed
+            
+        cfg = FillNodeConfig(**config_kwargs)
 
         fill = OrganicFillBatch(
             input_image=input_image, # Pass original BHWC image
@@ -619,34 +649,34 @@ class OrganicFillNode:
         print("Starting organic fill process...")
         # More frequent reporting initially, then less often
         report_steps = set([0, 1, 2, 3, 4, 5, 10, 20, 50] + list(range(100, max_steps + 1, 100)))
-        save_frame_steps = set([0, 1, 2, 3, 4, 5, 10, 15, 20, 30, 50] + list(range(100, max_steps + 1, 50)))
+        
+        # Calculate equally spaced save_frame_steps based on n_frames
+        if n_frames <= 1:
+            save_frame_steps = set([0])
+        else:
+            # Create equally spaced steps from 0 to max_steps-1
+            step_indices = [int(i * (max_steps - 1) / (n_frames - 1)) for i in range(n_frames)]
+            save_frame_steps = set(step_indices)
+        
+        print(f"Will save {len(save_frame_steps)} frames at steps: {sorted(list(save_frame_steps))[:10]}{'...' if len(save_frame_steps) > 10 else ''}")
 
         while step < max_steps:
             active_pixels, fill_ratio = fill.step()
 
-            # Store frame if it's a designated step or the last step
-            is_last_step = step == max_steps - 1
-            if step in save_frame_steps or is_last_step:
+            if step in save_frame_steps:
                  frames.append(fill.get_frame().clone()) # Clone BHW tensor
 
             # Print progress updates at designated steps or if complete
             is_complete = fill.is_complete()
-            if step in report_steps or is_last_step or is_complete:
+            if step in report_steps or is_complete:
                 elapsed = time.time() - start_time
                 print(f"Step {step}/{max_steps} | Fill ratio: {fill_ratio:.4f} | Active px: {active_pixels} | Elapsed: {elapsed:.2f}s")
 
             if is_complete:
                 print(f"Fill completed early at step {step} due to saturation or no active pixels.")
-                # Ensure the very last frame is captured if completed early
-                if not frames or not torch.all(frames[-1] == fill.get_frame()):
-                    frames.append(fill.get_frame().clone())
                 break
 
             step += 1
-
-        # If loop finished by max_steps, ensure last frame is added if needed
-        if step == max_steps and (not frames or not torch.all(frames[-1] == fill.get_frame())):
-             frames.append(fill.get_frame().clone())
 
         final_mask_bhw = fill.get_frame() # BHW float mask
         total_time = time.time() - start_time
@@ -667,7 +697,6 @@ class OrganicFillNode:
             # For simplicity in ComfyUI previews, often only the first batch item is shown.
             # We'll return all batch items, but downstream nodes might only use frames_preview_nbhwc[:, 0, ...]
             # Let's just return the first batch item's frames for preview? Or all?
-            # Let's return all for flexibility, but maybe just first batch item is better for preview node?
             # Decision: Return only first batch item frames for preview to avoid huge tensors if batch > 1
             frames_preview_nhwc = frames_preview_nbhwc[:, 0, :, :, :] # [N, H, W, C]
             print(f"Returning final mask (B={B}, H={H}, W={W}) and frames preview (N={frames_preview_nhwc.shape[0]}, H={H}, W={W}, C=3) for batch item 0.")
