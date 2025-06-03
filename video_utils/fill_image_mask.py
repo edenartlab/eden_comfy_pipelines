@@ -475,6 +475,7 @@ class OrganicFillNode:
                 "max_steps": ("INT", {"default": 5000, "min":1, "max":10000}),
                 "noise_low": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 2.0, "step": 0.01}),
                 "noise_high": ("FLOAT", {"default": 1.2, "min": 0.0, "max": 2.0, "step": 0.01}),
+                "processing_resolution": ("INT", {"default": 1024, "min": 256, "max": 4096, "step": 64}),
             }
         }
 
@@ -505,7 +506,8 @@ class OrganicFillNode:
                 weight_sam: Optional[float] = None,
                 weight_depth: Optional[float] = None,
                 weight_canny: Optional[float] = None,
-                weight_hed: Optional[float] = None
+                weight_hed: Optional[float] = None,
+                processing_resolution: int = 1024
                 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]: # Return mask BHW, frames NBHWC, grow_prob BHW, overlayed_fill_preview NHWC
 
         start_time = time.time()
@@ -516,6 +518,73 @@ class OrganicFillNode:
         # --- Input Validation and Preparation ---
         if input_image.dim() != 4:
             raise ValueError(f"Expected input_image with shape [B, H, W, C], got {input_image.shape}")
+        B, H, W, C = input_image.shape
+        orig_H, orig_W = H, W  # Store original dimensions for final output scaling
+        
+        # --- Resolution Scaling Logic ---
+        def _resize_to_processing_resolution(tensor_bhwc: torch.Tensor, target_res: int) -> torch.Tensor:
+            """Resize tensor to processing resolution maintaining aspect ratio and rounding to even integers."""
+            b, h, w, c = tensor_bhwc.shape
+            max_dim = max(h, w)
+            
+            if max_dim <= target_res:
+                return tensor_bhwc  # No need to resize if already smaller
+                
+            # Calculate scale factor
+            scale = target_res / max_dim
+            new_h = int(round(h * scale / 2)) * 2  # Round to nearest even
+            new_w = int(round(w * scale / 2)) * 2  # Round to nearest even
+            
+            # Ensure minimum size
+            new_h = max(new_h, 2)
+            new_w = max(new_w, 2)
+            
+            print(f"Resizing from ({h}, {w}) to ({new_h}, {new_w}) for processing (scale: {scale:.3f})")
+            
+            # Permute to BCHW for interpolation
+            tensor_bchw = tensor_bhwc.permute(0, 3, 1, 2)
+            resized_bchw = F.interpolate(tensor_bchw, size=(new_h, new_w), mode='bicubic', align_corners=False)
+            return resized_bchw.permute(0, 2, 3, 1)  # Back to BHWC
+        
+        def _resize_auxiliary_map(aux_map: Optional[torch.Tensor], target_res: int) -> Optional[torch.Tensor]:
+            """Resize auxiliary map to processing resolution if provided."""
+            if aux_map is None:
+                return None
+            
+            # Convert to BHWC format for resizing
+            if aux_map.dim() == 2:  # HW -> BHWC
+                aux_map = aux_map.unsqueeze(0).unsqueeze(-1)
+            elif aux_map.dim() == 3:  # HWC or BHW -> BHWC
+                if aux_map.shape[-1] in [1, 3]:  # HWC
+                    aux_map = aux_map.unsqueeze(0)
+                else:  # BHW
+                    aux_map = aux_map.unsqueeze(-1)
+            
+            return _resize_to_processing_resolution(aux_map, target_res)
+        
+        # Resize input image and auxiliary maps to processing resolution
+        print(f"Original input image dimensions: {input_image.shape}")
+        input_image = _resize_to_processing_resolution(input_image, processing_resolution)
+        print(f"Processing input image dimensions: {input_image.shape}")
+        
+        # Resize auxiliary maps
+        if SAM_map is not None:
+            SAM_map = _resize_auxiliary_map(SAM_map, processing_resolution)
+            print(f"Resized SAM map to: {SAM_map.shape if SAM_map is not None else None}")
+        
+        if depth_map is not None:
+            depth_map = _resize_auxiliary_map(depth_map, processing_resolution)
+            print(f"Resized depth map to: {depth_map.shape if depth_map is not None else None}")
+            
+        if canny_map is not None:
+            canny_map = _resize_auxiliary_map(canny_map, processing_resolution)
+            print(f"Resized canny map to: {canny_map.shape if canny_map is not None else None}")
+            
+        if hed_map is not None:
+            hed_map = _resize_auxiliary_map(hed_map, processing_resolution)
+            print(f"Resized HED map to: {hed_map.shape if hed_map is not None else None}")
+        
+        # Update dimensions after resizing
         B, H, W, C = input_image.shape
 
         # --- Determine Base Mask ---
@@ -738,6 +807,42 @@ class OrganicFillNode:
             
             overlayed_fill_preview_nhwc = torch.stack(overlayed_frames) # [N, H, W, C]
 
+        # --- Scale Outputs Back to Original Resolution ---
+        def _scale_back_to_original(tensor: torch.Tensor, target_h: int, target_w: int) -> torch.Tensor:
+            """Scale tensor back to original resolution using bicubic interpolation."""
+            if tensor.dim() == 3:  # BHW format (masks)
+                # Add channel dimension for interpolation
+                tensor_bchw = tensor.unsqueeze(1)  # [B, 1, H, W]
+                scaled_bchw = F.interpolate(tensor_bchw, size=(target_h, target_w), mode='bicubic', align_corners=False)
+                return scaled_bchw.squeeze(1)  # [B, H, W]
+            elif tensor.dim() == 4:  # NHWC format (images)
+                # Permute to NCHW for interpolation
+                tensor_nchw = tensor.permute(0, 3, 1, 2)  # [N, C, H, W]
+                scaled_nchw = F.interpolate(tensor_nchw, size=(target_h, target_w), mode='bicubic', align_corners=False)
+                return scaled_nchw.permute(0, 2, 3, 1)  # [N, H, W, C]
+            else:
+                raise ValueError(f"Unsupported tensor dimensions for scaling: {tensor.shape}")
+        
+        # Only scale if processing resolution was different from original
+        if H != orig_H or W != orig_W:
+            print(f"Scaling outputs back from ({H}, {W}) to original resolution ({orig_H}, {orig_W})")
+            
+            # Scale final mask
+            final_mask_bhw = _scale_back_to_original(final_mask_bhw, orig_H, orig_W)
+            
+            # Scale growth probability map
+            fill.grow_prob = _scale_back_to_original(fill.grow_prob, orig_H, orig_W)
+            
+            # Scale frames preview
+            if frames_preview_nhwc.numel() > 0:
+                frames_preview_nhwc = _scale_back_to_original(frames_preview_nhwc, orig_H, orig_W)
+            
+            # Scale overlayed fill preview
+            if overlayed_fill_preview_nhwc.numel() > 0:
+                overlayed_fill_preview_nhwc = _scale_back_to_original(overlayed_fill_preview_nhwc, orig_H, orig_W)
+            
+            print(f"Final output dimensions: mask={final_mask_bhw.shape}, frames_preview={frames_preview_nhwc.shape}, grow_prob={fill.grow_prob.shape}, overlayed_preview={overlayed_fill_preview_nhwc.shape}")
+
         # ComfyUI expects MASK as [B, H, W] and IMAGE as [N, H, W, C] or [B, H, W, C]
         # We return final_mask_bhw and frames_preview_nhwc (frames for first batch item)
         return final_mask_bhw, frames_preview_nhwc, fill.grow_prob, overlayed_fill_preview_nhwc
@@ -800,6 +905,7 @@ if __name__ == "__main__":
             "growth_threshold": test_config.get("growth_threshold", 0.6),
             "noise_low": test_config.get("noise_low", 0.0),
             "noise_high": test_config.get("noise_high", 1.2),
+            "processing_resolution": test_config.get("processing_resolution", 1024),
         }
 
         # --- 5. Run Organic Fill Node ---
