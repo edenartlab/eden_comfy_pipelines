@@ -44,6 +44,12 @@ class FillNodeConfig:
     saturation_threshold: float = 1e-3
     lab_gradient_scale: float = 5.0 # Scale factor for LAB L* gradient influence
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
+    # Growth probability map weights for weighted combination
+    weight_lab: float = 0.01      # Weight for LAB gradient grow_prob
+    weight_sam: float = 1.0      # Weight for SAM segmentation grow_prob  
+    weight_depth: float = 1.5    # Weight for depth gradient grow_prob
+    weight_canny: float = 0.05    # Weight for Canny edge grow_prob
+    weight_hed: float = 0.5      # Weight for HED edge grow_prob
 
 # ────────────────────────────────────────────────────────────────────────────────
 #  UTILITY FUNCTIONS
@@ -83,6 +89,49 @@ def _image_bhwc_to_lab_l_bhw(img_bhwc: torch.Tensor) -> torch.Tensor:
 
     return torch.stack(l_channel_batch).to(device) # [B,H,W]
 
+def _sam_rgb_to_color_transition_penalty(sam_rgb_bhwc: torch.Tensor) -> torch.Tensor:
+    """
+    Convert RGB SAM segmentation map to color transition penalty map.
+    Args:
+        sam_rgb_bhwc: [B,H,W,C] RGB segmentation map where each flat color represents a segment
+    Returns:
+        penalty_bhw: [B,H,W] penalty map where transitions between colors get high penalty (0-1)
+    """
+    B, H, W, C = sam_rgb_bhwc.shape
+    device = sam_rgb_bhwc.device
+    
+    if C != 3:
+        raise ValueError(f"SAM map must be RGB (3 channels), got {C}")
+    
+    # Convert to device and ensure float
+    sam_rgb = sam_rgb_bhwc.to(device).float()
+    
+    # Compute RGB gradients for each channel separately
+    penalty_maps = []
+    for b in range(B):
+        rgb_b = sam_rgb[b]  # [H,W,C]
+        
+        # Compute gradient magnitude for each RGB channel separately
+        r_grad = _sobel_grad(rgb_b[..., 0].unsqueeze(0)).squeeze(0)  # [H,W]
+        g_grad = _sobel_grad(rgb_b[..., 1].unsqueeze(0)).squeeze(0)  # [H,W]
+        b_grad = _sobel_grad(rgb_b[..., 2].unsqueeze(0)).squeeze(0)  # [H,W]
+        
+        # Combine RGB gradients - use L2 norm across channels
+        combined_grad = torch.sqrt(r_grad**2 + g_grad**2 + b_grad**2)
+        
+        # Normalize the penalty to 0-1:
+        if combined_grad.max() - combined_grad.min() == 0:
+            penalty = torch.zeros_like(combined_grad)
+        else:
+            penalty = (combined_grad - combined_grad.min()) / (combined_grad.max() - combined_grad.min())
+
+        # Threshold the penalty:
+        threshold_value = 0.25
+        penalty = torch.where(penalty > threshold_value, torch.ones_like(penalty), torch.zeros_like(penalty))
+        penalty_maps.append(penalty)
+    
+    penalty_bhw = torch.stack(penalty_maps)  # [B,H,W]
+    return torch.clamp(penalty_bhw, 0.0, 1.0)
 
 # ────────────────────────────────────────────────────────────────────────────────
 #  CORE ORGANIC‑FILL IMPLEMENTATION (BATCH‑AWARE)
@@ -96,7 +145,7 @@ class OrganicFillBatch:
                  depth: Optional[torch.Tensor] = None,  # [B,H,W] float 0‑1
                  canny: Optional[torch.Tensor] = None,  # [B,H,W] float/bool
                  hed: Optional[torch.Tensor] = None,  # [B,H,W] float/bool
-                 sam: Optional[torch.Tensor] = None,    # [B,H,W] float 0‑1
+                 sam: Optional[torch.Tensor] = None,    # [B,H,W,C] RGB float 0‑1 (segmentation map)
                  start_field: StartField = StartField.RANDOM,
                  config: FillNodeConfig = None):
 
@@ -113,7 +162,7 @@ class OrganicFillBatch:
         self.depth = depth.to(self.device) if depth is not None else None
         self.canny = canny.to(self.device) if canny is not None else None
         self.hed   = hed.to(self.device)   if hed is not None else None
-        self.sam   = sam.to(self.device)   if sam   is not None else None
+        self.sam_rgb = sam.to(self.device) if sam is not None else None  # Store RGB SAM for color transitions
         
         # Grids
         self.grid = torch.zeros_like(self.mask)                 # fill state 0/1
@@ -127,70 +176,114 @@ class OrganicFillBatch:
         _SOBEL_X = _SOBEL_X.to(self.device)
         _SOBEL_Y = _SOBEL_Y.to(self.device)
 
-        print(f"Preparing confidence fields on {self.device}...")
-        self._prepare_confidence_fields()
+        print(f"Preparing growth probability fields on {self.device}...")
+        self._prepare_grow_prob_fields()
         self._place_seeds(start_field)
 
     # ────────────────────────────────────────────────────────────────────────
-    #  CONFIDENCE FIELD
+    #  GROWTH PROBABILITY FIELD
     # ────────────────────────────────────────────────────────────────────────
-    def _prepare_confidence_fields(self):
-        """Compute confidence contributions based on available maps."""
+    def _prepare_grow_prob_fields(self, save_maps: bool = True):
+        """Compute independent growth probability maps for each input and combine with weighted sum."""
         B, H, W = self.B, self.H, self.W
         device = self.device
 
-        # --- Base Confidence: LAB L* gradient if no other maps ---
-        # Use LAB L* gradient magnitude as the primary driver if no other guidance is given
-        # Favours filling areas of low contrast first.
-        has_sam   = self.sam   is not None
-        has_depth = self.depth is not None
-        has_canny = self.canny is not None
-        has_hed   = self.hed   is not None
+        # Check which maps are available
+        has_sam   = self.sam_rgb is not None
+        has_depth = self.depth   is not None
+        has_canny = self.canny   is not None
+        has_hed   = self.hed     is not None
 
-        l_channel = _image_bhwc_to_lab_l_bhw(self.input_image) # [B,H,W]
+        print(f"Computing growth probability from available maps: LAB={True}, SAM={has_sam}, Depth={has_depth}, Canny={has_canny}, HED={has_hed}")
+
+        # Initialize list to store individual growth probability maps and their weights
+        grow_prob_maps = []
+        weights = []
+
+        # ── LAB L* Gradient Growth Probability (always available) ──
+        print("Computing LAB L* gradient growth probability...")
+        l_channel = _image_bhwc_to_lab_l_bhw(self.input_image)  # [B,H,W]
         l_grad_mag = _sobel_grad(l_channel)
-        # Inverse relationship: high gradient -> low confidence
-        base_confidence = torch.exp(-l_grad_mag * self.cfg.lab_gradient_scale)
-        base_confidence = normalize_tensor(base_confidence) # Ensure [0,1]
+        lab_grow_prob = torch.exp(-l_grad_mag * self.cfg.lab_gradient_scale)
+        lab_grow_prob = normalize_tensor(lab_grow_prob)  # [B,H,W] 0-1
+        
+        if save_maps:
+            comfy_tensor_to_pil(lab_grow_prob.unsqueeze(-1)).save('grow_prob_lab.png')
+        grow_prob_maps.append(lab_grow_prob)
+        weights.append(self.cfg.weight_lab)
 
-        # --- semantic Map Contribution (if available) ---
-        P_sam = torch.ones((B, H, W), device=device)
-        if has_sam:
-            print("Using Semantic map contribution.")
-            P_sam = normalize_tensor(self.sam) # Assume higher value means more likely to be filled
+        # ── SAM RGB Segmentation Growth Probability (if available) ──
+        if has_sam and self.cfg.weight_sam > 0:
+            # SAM is RGB - compute color transition penalty of shape: [B,H,W]
+            sam_penalty = _sam_rgb_to_color_transition_penalty(self.sam_rgb)
 
-        # --- Depth Gradient Contribution (if available) ---
-        # Penalises growing across sharp depth changes
-        depth_term = torch.ones((B, H, W), device=device)
-        if has_depth:
-            print("Using Depth map contribution.")
+            # Convert penalty to growth probability (high penalty -> low growth probability)
+            sam_grow_prob = 1.0 - sam_penalty
+            sam_grow_prob = normalize_tensor(sam_grow_prob)  # [B,H,W] 0-1
+
+            if save_maps:
+                comfy_tensor_to_pil(sam_grow_prob.unsqueeze(-1)).save('grow_prob_sam.png')
+            grow_prob_maps.append(sam_grow_prob)
+            weights.append(self.cfg.weight_sam)
+
+        if has_depth and self.cfg.weight_depth > 0:
             d_norm = normalize_tensor(self.depth)
-            grad_mag = _sobel_grad(d_norm)  # [B,H,W]
-            # Exponential decay: High gradient -> low term value
-            depth_term = torch.exp(-grad_mag * 10) # Factor 10 enhances effect
+            depth_grad_mag = _sobel_grad(d_norm)  # [B,H,W]
+            depth_grad_mag = normalize_tensor(depth_grad_mag)
 
-        # --- Canny Edge Penalty (if available) ---
-        # Penalises growing near strong edges
-        edge_penalty = torch.ones((B, H, W), device=device)
-        if has_canny:
-            print("Using Canny map contribution.")
-            # Assume Canny map is 0-1, where 1 is strong edge
+            # High depth gradient -> low growth probability
+            depth_grow_prob = torch.exp(-4 * depth_grad_mag)
+            depth_grow_prob = normalize_tensor(depth_grow_prob)  # [B,H,W] 0-1
+            if save_maps:
+                comfy_tensor_to_pil(depth_grow_prob.unsqueeze(-1)).save('grow_prob_depth.png')
+            grow_prob_maps.append(depth_grow_prob)
+            weights.append(self.cfg.weight_depth)
+
+        # ── Canny Edge Growth Probability (if available) ──
+        if has_canny and self.cfg.weight_canny > 0:
             c_norm = normalize_tensor(self.canny.float())
-            edge_penalty = 1.0 - c_norm # Prefer pixels *away* from strong edges
+            # High edge strength -> low growth probability
+            canny_grow_prob = 1.0 - c_norm
+            canny_grow_prob = normalize_tensor(canny_grow_prob)  # [B,H,W] 0-1
+            if save_maps:
+                comfy_tensor_to_pil(canny_grow_prob.unsqueeze(-1)).save('grow_prob_canny.png')
+            grow_prob_maps.append(canny_grow_prob)
+            weights.append(self.cfg.weight_canny)
 
-        # --- Combine Confidence Components ---
-        # Start with the base LAB confidence:
-        confidence = base_confidence
+        # ── HED Edge Growth Probability (if available) ──
+        if has_hed and self.cfg.weight_hed > 0:
+            h_norm = normalize_tensor(self.hed.float())
+            # High edge strength -> low growth probability
+            hed_grow_prob = 1.0 - h_norm
+            hed_grow_prob = normalize_tensor(hed_grow_prob)  # [B,H,W] 0-1
+            if save_maps:
+                comfy_tensor_to_pil(hed_grow_prob.unsqueeze(-1)).save('grow_prob_hed.png')
+            grow_prob_maps.append(hed_grow_prob)
+            weights.append(self.cfg.weight_hed)
 
-        # Multiply positive/neutral factors
-        if has_sam:
-            confidence = confidence * P_sam # Favor regions indicated by sam map
-        if has_depth:
-            confidence = confidence * depth_term # Penalize high depth gradients
-        confidence = confidence * edge_penalty # Penalize proximity to Canny edges
+        # ── Combine Growth Probability Maps with Weighted Sum ──
+        if not grow_prob_maps:
+            # Fallback: use uniform growth probability if no maps available
+            print("Warning: No growth probability maps available, using uniform growth probability.")
+            combined_grow_prob = torch.ones((B, H, W), device=device)
+        else:
+            print(f"Combining {len(grow_prob_maps)} growth probability maps with weighted sum...")
+            # Stack maps and weights
+            maps_tensor = torch.stack(grow_prob_maps, dim=0)  # [N, B, H, W]
+            weights_tensor = torch.tensor(weights, device=device).view(-1, 1, 1, 1)  # [N, 1, 1, 1]
+            
+            # Weighted sum
+            weighted_sum = torch.sum(maps_tensor * weights_tensor, dim=0)  # [B, H, W]
+            total_weight = torch.sum(weights_tensor)
+            
+            # Normalize by total weight
+            combined_grow_prob = weighted_sum / total_weight if total_weight > 0 else weighted_sum
+            
+        # Final normalization of [B,H,W] tensor:
+        self.grow_prob = normalize_tensor(combined_grow_prob)
 
-        # Final clamp
-        self.confidence = torch.clamp(confidence, 0.0, 1.0)
+        if save_maps:
+            comfy_tensor_to_pil(self.grow_prob.unsqueeze(-1)).save('grow_prob.png')
 
     # ────────────────────────────────────────────────────────────────────────
     #  SEED PLACEMENT
@@ -280,7 +373,7 @@ class OrganicFillBatch:
         # Identify boundary cells: not filled, but have a filled neighbour, and are within the mask
         has_filled_neighbour = (neighbours.squeeze(1) > 0) & (self.grid == 0)
 
-        P = self.confidence
+        P = self.grow_prob
 
         # --- Pulsating threshold ---
         thr = self.cfg.growth_threshold
@@ -371,6 +464,7 @@ class OrganicFillNode:
                 "SAM_map": ("IMAGE", {}),      # Optional: BHWC/HWC Probability Map (float 0-1)
                 "depth_map": ("IMAGE", {}),    # Optional: BHWC/HWC Depth Map (float 0-1)
                 "canny_map": ("IMAGE", {}),    # Optional: BHWC/HWC Canny Edges (float 0-1)
+                "hed_map": ("IMAGE", {}),      # Optional: BHWC/HWC HED Edges (float 0-1)
                 "start_field": ( [sf.value for sf in StartField], {"default": StartField.CENTER.value} ),
                 "max_steps": ("INT", {"default":2000, "min":1, "max":10000}),
                 "growth_threshold": ("FLOAT", {"default": 0.6, "min": 0.0, "max": 1.0, "step": 0.01}),
@@ -384,8 +478,10 @@ class OrganicFillNode:
 
     # Output is a single mask (last frame) in ComfyUI MASK format (B, H, W)
     # and a batch of frames (N, H, W) - requires custom handling downstream if used
-    RETURN_TYPES = ("MASK", "IMAGE")
-    RETURN_NAMES = ("final_mask", "frames_preview") # frames need conversion for IMAGE type
+    # and the growth probability map (B, H, W) in MASK format
+    # and overlayed fill preview (N, H, W, C) showing mask animation on input image
+    RETURN_TYPES = ("MASK", "IMAGE", "MASK", "IMAGE")
+    RETURN_NAMES = ("final_mask", "frames_preview", "grow_prob_map", "overlayed_fill_preview")
 
     FUNCTION = "execute"
     CATEGORY = "Eden 🌱/Experimental"
@@ -396,6 +492,7 @@ class OrganicFillNode:
                 SAM_map: Optional[torch.Tensor] = None, # BHWC/HWC
                 depth_map: Optional[torch.Tensor] = None, # BHWC/HWC
                 canny_map: Optional[torch.Tensor] = None, # BHWC/HWC
+                hed_map: Optional[torch.Tensor] = None, # BHWC/HWC
                 start_field: str = StartField.CENTER.value,
                 max_steps: int = 2000,
                 growth_threshold: float = 0.6,
@@ -404,7 +501,7 @@ class OrganicFillNode:
                 noise_low: float = 0.0,
                 noise_high: float = 1.2,
                 lab_gradient_scale: float = 5.0,
-                ) -> Tuple[torch.Tensor, torch.Tensor]: # Return mask BHW, frames NBHWC
+                ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]: # Return mask BHW, frames NBHWC, grow_prob BHW, overlayed_fill_preview NHWC
 
         start_time = time.time()
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -417,21 +514,6 @@ class OrganicFillNode:
         B, H, W, C = input_image.shape
 
         # --- Determine Base Mask ---
-        if SAM_map is not None:
-            print("SAM map provided, using it to create base mask.")
-            # Ensure SAM_map is BHWC, take first channel, threshold
-            if SAM_map.dim() == 3: # HWC -> BHWC
-                SAM_map = SAM_map.unsqueeze(0)
-            if SAM_map.shape[0] != B: # Repeat if batch size mismatch (e.g., single mask for batch)
-                 print(f"Warning: SAM map batch size {SAM_map.shape[0]} != input batch size {B}. Repeating SAM map.")
-                 SAM_map = SAM_map.repeat(B, 1, 1, 1)
-            if SAM_map.shape[1:3] != (H, W):
-                print(f"Warning: Resizing SAM map from {SAM_map.shape[1:3]} to {(H,W)}")
-                SAM_map = F.interpolate(SAM_map.permute(0,3,1,2), size=(H,W), mode='bilinear', align_corners=False).permute(0,2,3,1)
-
-            sam_prob = SAM_map[..., 0] # Use first channel as probability [B, H, W]
-
-
         base_mask = torch.ones((B, H, W), dtype=torch.float32, device=device)
 
         # --- Prepare Optional Auxiliary Maps ---
@@ -477,10 +559,50 @@ class OrganicFillNode:
             print(f"Processed {name} dimensions: {aux.shape}")
             return aux.to(device).float() # Ensure float and correct device
 
+        # Helper specifically for SAM RGB maps (preserves RGB channels)
+        def _prep_sam_rgb(sam_map: Optional[torch.Tensor]) -> Optional[torch.Tensor]:
+            if sam_map is None: 
+                return None
+            print("Preparing SAM RGB map...")
+            
+            # Ensure 4D BHWC
+            if sam_map.dim() == 2:  # HW -> BHWC
+                sam_map = sam_map.unsqueeze(0).unsqueeze(-1).expand(-1, -1, -1, 3)  # Convert to RGB
+            elif sam_map.dim() == 3:  # HWC -> BHWC
+                if sam_map.shape[-1] == 1:  # Grayscale -> RGB
+                    sam_map = sam_map.expand(-1, -1, 3).unsqueeze(0)
+                elif sam_map.shape[-1] == 3:  # RGB -> BHWC
+                    sam_map = sam_map.unsqueeze(0)
+                else:  # Assume BHW -> BHWC RGB
+                    sam_map = sam_map.unsqueeze(-1).expand(-1, -1, -1, 3)
+            
+            # Ensure batch dimension matches
+            if sam_map.shape[0] != B:
+                print(f"Warning: SAM batch size {sam_map.shape[0]} != input batch size {B}. Repeating map.")
+                sam_map = sam_map[0:1, ...].repeat(B, 1, 1, 1)
+            
+            # Ensure spatial dimensions match
+            if sam_map.shape[1:3] != (H, W):
+                print(f"Warning: Resizing SAM map from {sam_map.shape[1:3]} to {(H,W)}")
+                sam_bchw = sam_map.permute(0, 3, 1, 2)  # BHWC -> BCHW
+                sam_resized_bchw = F.interpolate(sam_bchw.float(), size=(H, W), mode='bilinear', align_corners=False)
+                sam_map = sam_resized_bchw.permute(0, 2, 3, 1)  # BCHW -> BHWC
+            
+            # Ensure 3 channels (RGB)
+            if sam_map.shape[-1] == 1:  # Grayscale -> RGB
+                sam_map = sam_map.expand(-1, -1, -1, 3)
+            elif sam_map.shape[-1] > 3:  # Take first 3 channels
+                print(f"Warning: SAM map has {sam_map.shape[-1]} channels. Taking first 3 for RGB.")
+                sam_map = sam_map[..., :3]
+            
+            print(f"Processed SAM RGB dimensions: {sam_map.shape}")
+            return sam_map.to(device).float()
+
         depth_map_bhw = _prep_aux(depth_map, "Depth")
         canny_map_bhw = _prep_aux(canny_map, "Canny")
-        # Re-use the prepared SAM_map if it existed, otherwise it's None
-        sam_prob_bhw = _prep_aux(SAM_map, "SAM_Prob") if SAM_map is not None else None
+        hed_map_bhw = _prep_aux(hed_map, "HED")
+        # Prepare SAM as RGB BHWC map
+        sam_rgb_bhwc = _prep_sam_rgb(SAM_map)
 
         # --- Configure and Initialize Fill ---
         cfg = FillNodeConfig(
@@ -498,7 +620,8 @@ class OrganicFillNode:
             base_mask=base_mask,     # Pass BHW mask
             depth=depth_map_bhw,     # Pass BHW depth
             canny=canny_map_bhw,     # Pass BHW canny
-            sam=sam_prob_bhw,        # Pass BHW samantic probability
+            hed=hed_map_bhw,         # Pass BHW hed
+            sam=sam_rgb_bhwc,        # Pass BHW samantic probability
             start_field=StartField(start_field),
             config=cfg
         )
@@ -548,6 +671,7 @@ class OrganicFillNode:
         if not frames: # Handle case where no frames were saved (e.g., max_steps=0)
             print("Warning: No frames were generated.")
             frames_preview_nbhwc = torch.zeros((1, B, H, W, 1), device=device, dtype=torch.float32) # Placeholder
+            overlayed_fill_preview_nhwc = torch.zeros((1, H, W, 3), device=device, dtype=torch.float32) # Placeholder
         else:
             frames_nbhw = torch.stack(frames) # [N, B, H, W]
             # Convert NBHW (0/1 float) to NBHWC (grayscale float 0-1) for IMAGE output
@@ -561,10 +685,46 @@ class OrganicFillNode:
             frames_preview_nhwc = frames_preview_nbhwc[:, 0, :, :, :] # [N, H, W, C]
             print(f"Returning final mask (B={B}, H={H}, W={W}) and frames preview (N={frames_preview_nhwc.shape[0]}, H={H}, W={W}, C=3) for batch item 0.")
 
+            # Create overlayed fill preview: overlay mask animation on input image with alpha=0.5
+            # Get first batch item of input image for overlay
+            input_img_hwc = input_image[0] # [H, W, C]
+            # Ensure input image is RGB (3 channels)
+            if input_img_hwc.shape[-1] == 1: # Grayscale to RGB
+                input_img_hwc = input_img_hwc.expand(-1, -1, 3)
+            elif input_img_hwc.shape[-1] > 3: # Take first 3 channels
+                input_img_hwc = input_img_hwc[..., :3]
+            
+            # Get frames for first batch item [N, H, W]
+            frames_nhw = frames_nbhw[:, 0, :, :] # [N, H, W]
+            N = frames_nhw.shape[0]
+            
+            # Create overlay with alpha blending
+            alpha = 0.4
+            overlayed_frames = []
+            
+            for i in range(N):
+                frame_hw = frames_nhw[i] # [H, W] (0/1 float mask)
+                
+                # Convert mask to RGB: white for filled areas, transparent for unfilled
+                # We'll use red color for the fill mask overlay
+                mask_rgb_hwc = torch.zeros_like(input_img_hwc) # [H, W, 3]
+                mask_rgb_hwc[..., 0] = frame_hw # Red channel = mask
+                
+                # Alpha blend: result = input * (1 - alpha * mask) + mask_color * (alpha * mask)
+                # For areas where mask is 1, blend with alpha=0.5
+                # For areas where mask is 0, keep original image
+                mask_alpha_hw = frame_hw * alpha # [H, W] - alpha only where mask is 1
+                mask_alpha_hwc = mask_alpha_hw.unsqueeze(-1).expand(-1, -1, 3) # [H, W, 3]
+                mask_alpha_hwc = mask_alpha_hwc.to(input_img_hwc.device)
+                
+                overlayed_hwc = input_img_hwc * (1 - mask_alpha_hwc) + mask_rgb_hwc * mask_alpha_hwc
+                overlayed_frames.append(overlayed_hwc)
+            
+            overlayed_fill_preview_nhwc = torch.stack(overlayed_frames) # [N, H, W, C]
 
         # ComfyUI expects MASK as [B, H, W] and IMAGE as [N, H, W, C] or [B, H, W, C]
         # We return final_mask_bhw and frames_preview_nhwc (frames for first batch item)
-        return final_mask_bhw, frames_preview_nhwc
+        return final_mask_bhw, frames_preview_nhwc, fill.grow_prob, overlayed_fill_preview_nhwc
 
 
 # ────────────────────────────────────────────────────────────────────────────────
@@ -574,7 +734,7 @@ if __name__ == "__main__":
     import os
     import matplotlib
     matplotlib.use('Agg') # Use non-interactive backend for saving files
-    from fill_utils import load_image, save_final_mask, save_frames_as_gif, visualize_inputs, visualize_frames_grid, visualize_final_result
+    from fill_utils import load_image, save_final_mask, save_frames_as_gif, visualize_final_result
 
     def run_test_case(test_config: Dict[str, Any], output_dir: str):
         """Loads data, runs the fill node, and saves visualizations for a single test case."""
@@ -612,15 +772,6 @@ if __name__ == "__main__":
         if depth_map_bhwc is not None: print(f"Loaded Depth map: {depth_map_bhwc.shape}")
         if canny_map_bhwc is not None: print(f"Loaded Canny map: {canny_map_bhwc.shape}")
 
-        # --- 3. Visualize Inputs ---
-        visualize_inputs(
-            output_dir=output_dir,
-            test_name=test_name,
-            input_img=(input_img_bhwc[0] * 255).byte(), # Pass HWC uint8
-            depth_map=(depth_map_bhwc[0] * 255).byte() if depth_map_bhwc is not None else None,
-            canny_map=(canny_map_bhwc[0] * 255).byte() if canny_map_bhwc is not None else None
-        )
-
         # --- 4. Prepare Node Parameters ---
         node_params = {
             "input_image": input_img_bhwc, # BHWC float
@@ -640,8 +791,8 @@ if __name__ == "__main__":
 
         # --- 5. Run Organic Fill Node ---
         fill_node = OrganicFillNode()
-        # Returns final_mask (BHW float), frames_preview (NHWC float for batch 0)
-        final_mask_bhw, frames_preview_nhwc = fill_node.execute(**node_params)
+        # Returns final_mask (BHW float), frames_preview (NHWC float for batch 0), grow_prob (BHW float), overlayed_fill_preview (NHWC float for batch 0)
+        final_mask_bhw, frames_preview_nhwc, grow_prob_bhw, overlayed_fill_preview_nhwc = fill_node.execute(**node_params)
 
         # --- 6. Visualize & Save Outputs ---
         # Utilities expect HW uint8 mask, NHW uint8 frames, HWC uint8 input
@@ -650,11 +801,34 @@ if __name__ == "__main__":
         final_mask_hw_byte = (final_mask_bhw[0] * 255).byte().cpu()
         save_final_mask(output_dir, test_name, final_mask_hw_byte)
 
+        # Save growth probability map for first batch item
+        grow_prob_hw_byte = (grow_prob_bhw[0] * 255).byte().cpu()
+        grow_prob_pil = Image.fromarray(grow_prob_hw_byte.numpy(), mode='L')
+        grow_prob_pil.save(os.path.join(output_dir, f"{test_name}_grow_prob.png"))
+
         # Convert frames preview NHWC float -> NHW byte
         frames_nhw_byte = (frames_preview_nhwc[..., 0] * 255).byte().cpu() # Take first channel
         save_frames_as_gif(frames_nhw_byte, os.path.join(output_dir, f"{test_name}_fill_process.gif"))
-        visualize_frames_grid(output_dir, test_name, frames_nhw_byte)
-
+        
+        # Save overlayed fill preview as GIF
+        # Convert NHWC float -> NHWC byte for GIF creation
+        overlayed_nhwc_byte = (overlayed_fill_preview_nhwc * 255).byte().cpu()
+        # Convert RGB frames to PIL Images and save as GIF
+        overlayed_pil_frames = []
+        for i in range(overlayed_nhwc_byte.shape[0]):
+            frame_hwc_byte = overlayed_nhwc_byte[i].numpy()
+            pil_frame = Image.fromarray(frame_hwc_byte, mode='RGB')
+            overlayed_pil_frames.append(pil_frame)
+        
+        if overlayed_pil_frames:
+            overlayed_pil_frames[0].save(
+                os.path.join(output_dir, f"{test_name}_overlayed_fill.gif"),
+                save_all=True,
+                append_images=overlayed_pil_frames[1:],
+                duration=100,  # 100ms per frame
+                loop=0
+            )
+        
         # Input image HWC uint8, final mask HW byte
         input_img_hwc_byte = (input_img_bhwc[0] * 255).byte().cpu()
         visualize_final_result(
@@ -665,6 +839,7 @@ if __name__ == "__main__":
         )
 
         print(f"--- Test {test_name} complete. Results saved to {output_dir}/ ---")
+        print(f"    Generated: {test_name}_final_mask.png, {test_name}_grow_prob.png, {test_name}_fill_process.gif, {test_name}_overlayed_fill.gif, {test_name}_visualization.png")
 
     # --- Define Test Setup ---
     script_dir = os.path.dirname(__file__)
@@ -678,24 +853,33 @@ if __name__ == "__main__":
             "name": "tree",
             "input": os.path.join(test_dir, "tree.jpg"),
             "depth": os.path.join(test_dir, "tree_depth.jpg"),
-            #"canny": os.path.join(test_dir, "tree_canny.jpg"),
-            #"hed": os.path.join(test_dir, "tree_hed.jpg"),
-            #"sam": os.path.join(test_dir, "tree_sam.jpg"),
+            "canny": os.path.join(test_dir, "tree_canny.jpg"),
+            "hed": os.path.join(test_dir, "tree_hed.jpg"),
+            "sam": os.path.join(test_dir, "tree_sam.jpg"),
             "start_field": StartField.BOTTOM_CENTER.value
         },
         {
             "name": "church",
             "input": os.path.join(test_dir, "church.jpg"),
-            #"depth": os.path.join(test_dir, "church_depth.jpg"),
-            #"canny": os.path.join(test_dir, "church_canny.jpg"),
+            "depth": os.path.join(test_dir, "church_depth.jpg"),
+            "canny": os.path.join(test_dir, "church_canny.jpg"),
             "hed": os.path.join(test_dir, "church_hed.jpg"),
             "sam": os.path.join(test_dir, "church_sam.jpg"),
             "start_field": StartField.BOTTOM_CENTER.value
-        }
+        },
+        {
+            "name": "rock",
+            "input": os.path.join(test_dir, "rock.jpg"),
+            "depth": os.path.join(test_dir, "rock_depth.jpg"),
+            "canny": os.path.join(test_dir, "rock_canny.jpg"),
+            "hed": os.path.join(test_dir, "rock_hed.jpg"),
+            "sam": os.path.join(test_dir, "rock_sam.jpg"),
+            "start_field": StartField.BOTTOM_CENTER.value
+        },
     ]
 
     # --- Run Tests ---
-    for config in test_cases:
+    for config in test_cases[:]:
         run_test_case(config, output_dir)
 
     print("\nAll specified tests completed!")
