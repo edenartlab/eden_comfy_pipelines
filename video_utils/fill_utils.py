@@ -10,6 +10,30 @@ from typing import List, Tuple, Optional
 #  UTILITIES
 # ────────────────────────────────────────────────────────────────────────────────
 
+def pil_to_comfy_tensor(pil_image: Image.Image) -> torch.Tensor:
+    """Convert PIL Image to ComfyUI tensor format [B,H,W,C]."""
+    # Convert PIL to tensor [C,H,W] with values in [0,1]
+    tensor = ToTensor()(pil_image)
+    # Permute to [H,W,C]
+    tensor = tensor.permute(1, 2, 0)
+    # Add batch dimension [B,H,W,C]
+    tensor = tensor.unsqueeze(0)
+    return tensor
+
+def comfy_tensor_to_pil(tensor: torch.Tensor) -> Image.Image:
+    """Convert ComfyUI tensor format [B,H,W,C] to PIL Image."""
+    # Remove batch dimension if present
+    if tensor.dim() == 4:
+        tensor = tensor.squeeze(0)  # [H,W,C]
+    # Ensure tensor is on CPU and in float format
+    tensor = tensor.cpu().float()
+    # Clamp to [0,1] range
+    tensor = torch.clamp(tensor, 0, 1)
+    # Permute to [C,H,W] for ToPILImage
+    tensor = tensor.permute(2, 0, 1)
+    # Convert to PIL
+    return ToPILImage()(tensor)
+
 def tensor_to_np_mask(t: torch.Tensor) -> np.ndarray:
     """Convert boolean Torch mask [H,W] to uint8 0/255 numpy."""
     # Ensure input is on CPU before converting to numpy
@@ -18,52 +42,57 @@ def tensor_to_np_mask(t: torch.Tensor) -> np.ndarray:
     return (t.numpy().astype(np.uint8) * 255)
 
 # Helper function for normalization
-def normalize_tensor(tensor: torch.Tensor) -> torch.Tensor:
-    """Normalize tensor to [0, 1] range."""
-    if tensor.numel() == 0: return tensor # Handle empty tensor
-    min_val = torch.min(tensor)
-    max_val = torch.max(tensor)
-    if max_val > min_val:
-        normalized = (tensor - min_val) / (max_val - min_val)
-    else:
-        # Handle case where all values are the same (avoid division by zero)
-        # If values are outside [0, 1], scale them; otherwise, keep them.
-        if min_val < 0 or max_val > 1:
-             normalized = torch.zeros_like(tensor) if min_val == 0 else torch.ones_like(tensor) * 0.5 # Or map to a default like 0.5
-        else:
-             normalized = tensor # Already in range or single value within range
-    return normalized.clamp(0, 1) # Ensure clamp just in case
+def normalize_tensor(tensor: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
+    """Normalize tensor to [0, 1] range.
+    
+    For tensors with dim < 3: Normalizes the entire tensor.
+    For tensors with dim >= 3: Normalizes each batch element independently.
+    
+    Args:
+        tensor: Input tensor to normalize
+        eps: Small epsilon value to avoid division by zero
+        
+    Returns:
+        Normalized tensor in [0, 1] range
+    """
+    if tensor is None:
+        return None
+        
+    if tensor.numel() == 0:
+        return tensor  # Handle empty tensor
+    
+    if tensor.dim() < 3:  # Handle cases like [H,W] or single values
+        min_val = torch.min(tensor)
+        max_val = torch.max(tensor)
+        if max_val - min_val < eps:
+            return torch.zeros_like(tensor)
+        return (tensor - min_val) / (max_val - min_val + eps)
+    else:  # Handle batched tensors [B, H, W] or [B, C, H, W], etc.
+        # Normalize each element in the batch independently
+        tensor_norm = torch.zeros_like(tensor, dtype=torch.float32)
+        for i in range(tensor.shape[0]):
+            min_val = tensor[i].min()
+            max_val = tensor[i].max()
+            if max_val - min_val < eps:
+                tensor_norm[i] = torch.zeros_like(tensor[i])
+            else:
+                tensor_norm[i] = (tensor[i] - min_val) / (max_val - min_val + eps)
+        return tensor_norm
 
 def load_image(path: str, target_size: Optional[Tuple[int, int]] = None) -> Optional[torch.Tensor]:
     """Load image from path and convert to tensor [H,W,C] with optional resizing."""
-    if not os.path.exists(path):
-        print(f"File not found: {path}")
-        return None
-    try:
-        img = Image.open(path)
-    except Exception as e:
-        print(f"Error opening image {path}: {e}")
-        return None
+    img = Image.open(path)
 
     # Ensure image is in RGB or L mode before processing
     if img.mode not in ['RGB', 'L', 'RGBA']:
-        print(f"Converting image {path} from mode {img.mode} to RGB.")
         img = img.convert('RGB')
     elif img.mode == 'RGBA':
-        # Handle transparency if needed, e.g., composite onto white background
-        print(f"Converting image {path} from RGBA to RGB.")
         background = Image.new("RGB", img.size, (255, 255, 255))
         background.paste(img, mask=img.split()[3]) # 3 is the alpha channel
         img = background
 
-
     if target_size is not None:
-        try:
-            img = img.resize((target_size[1], target_size[0]), Image.BICUBIC)
-        except Exception as e:
-            print(f"Error resizing image {path}: {e}")
-            # Continue without resizing if it fails
-            pass
+        img = img.resize((target_size[1], target_size[0]), Image.BICUBIC)
 
     tensor = ToTensor()(img) # [C,H,W]
 

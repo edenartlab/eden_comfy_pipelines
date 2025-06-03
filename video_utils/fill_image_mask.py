@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Tuple, Optional, List, Dict, Any
 from PIL import Image
-from torchvision.transforms import ToTensor, ToPILImage, Resize
+from torchvision.transforms import Resize
 
 # Hacky way to get this to work as module and standalone script (for testing)
 try:
@@ -31,7 +31,7 @@ class StartField(Enum):
     LEFT_CENTER = "left_center"
     RIGHT_CENTER = "right_center"
     RANDOM = "random"
-    CLOSEST_POINT = "closest_point"  # new option – uses depth or COM
+    CLOSEST_POINT = "closest_point"  # requires depth map
 
 @dataclass
 class FillNodeConfig:
@@ -43,12 +43,8 @@ class FillNodeConfig:
     noise_high: float = 1.2
     saturation_window: int = 15
     saturation_threshold: float = 1e-3
-    pulsate_strength: float = 0.0  # added – sinusoidal modulation strength
-    directional_flow: float = 0.0  # changed from bool - bias strength by depth gradient
-    branch_awareness: float = 0.0  # added – favour skeleton proximity
     lab_gradient_scale: float = 5.0 # Scale factor for LAB L* gradient influence
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
-
 
 # ────────────────────────────────────────────────────────────────────────────────
 #  UTILITY FUNCTIONS
@@ -66,24 +62,6 @@ def _sobel_grad(img: torch.Tensor) -> torch.Tensor:
     grad_y = F.conv2d(img_b1hw, _SOBEL_Y.to(img.device), padding=1)
     mag = torch.sqrt(grad_x**2 + grad_y**2)
     return mag.squeeze(1)  # [B,H,W]
-
-def _normalise(t: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
-    """Normalise tensor to [0, 1] range per item in batch."""
-    if t is None: return None
-    if t.dim() < 3: # Handle cases like [H,W] or single values
-        mn, mx = t.min(), t.max()
-        if mx - mn < eps: return torch.zeros_like(t)
-        return (t - mn) / (mx - mn + eps)
-    else: # Handle batched tensors [B, H, W] or [B, C, H, W], etc.
-        # Normalise each element in the batch independently
-        t_norm = torch.zeros_like(t, dtype=torch.float32)
-        for i in range(t.shape[0]):
-            mn, mx = t[i].min(), t[i].max()
-            if mx - mn < eps:
-                t_norm[i] = torch.zeros_like(t[i])
-            else:
-                t_norm[i] = (t[i] - mn) / (mx - mn + eps)
-        return t_norm
 
 def _image_bhwc_to_lab_l_bhw(img_bhwc: torch.Tensor) -> torch.Tensor:
     """Convert RGB image tensor [B,H,W,C] (0-1 float) to LAB L* channel [B,H,W]."""
@@ -135,7 +113,7 @@ class OrganicFillBatch:
         self.depth = depth.to(self.device) if depth is not None else None
         self.canny = canny.to(self.device) if canny is not None else None
         self.sem   = sem.to(self.device)   if sem   is not None else None
-
+        
         # Grids
         self.grid = torch.zeros_like(self.mask)                 # fill state 0/1
         self.activity_counter = torch.zeros_like(self.mask)     # int32
@@ -174,7 +152,7 @@ class OrganicFillBatch:
             l_grad_mag = _sobel_grad(l_channel)
             # Inverse relationship: high gradient -> low confidence
             base_confidence = torch.exp(-l_grad_mag * self.cfg.lab_gradient_scale)
-            base_confidence = _normalise(base_confidence) # Ensure [0,1]
+            base_confidence = normalize_tensor(base_confidence) # Ensure [0,1]
         else:
             # Start with neutral confidence if using specific maps
             base_confidence = torch.ones((B, H, W), device=device)
@@ -183,7 +161,7 @@ class OrganicFillBatch:
         P_sem = torch.ones((B, H, W), device=device)
         if has_sem:
             print("Using Semantic map contribution.")
-            P_sem = _normalise(self.sem) # Assume higher value means more likely to be filled
+            P_sem = normalize_tensor(self.sem) # Assume higher value means more likely to be filled
 
         # --- Signed Distance Field Penalty (always calculated based on base_mask) ---
         # Removed SDF Penalty: Since self.mask is always full, the SDF is always 0,
@@ -195,7 +173,7 @@ class OrganicFillBatch:
         depth_term = torch.ones((B, H, W), device=device)
         if has_depth:
             print("Using Depth map contribution.")
-            d_norm = _normalise(self.depth)
+            d_norm = normalize_tensor(self.depth)
             grad_mag = _sobel_grad(d_norm)  # [B,H,W]
             # Exponential decay: High gradient -> low term value
             depth_term = torch.exp(-grad_mag * 10) # Factor 10 enhances effect
@@ -206,7 +184,7 @@ class OrganicFillBatch:
         if has_canny:
             print("Using Canny map contribution.")
             # Assume Canny map is 0-1, where 1 is strong edge
-            c_norm = _normalise(self.canny.float())
+            c_norm = normalize_tensor(self.canny.float())
             edge_penalty = 1.0 - c_norm # Prefer pixels *away* from strong edges
 
         # --- Combine Confidence Components ---
@@ -223,38 +201,6 @@ class OrganicFillBatch:
 
         # Final clamp
         self.confidence = torch.clamp(confidence, 0.0, 1.0)
-
-        # --- Branch Awareness (if enabled and mask is not full) ---
-        # Note: self.mask is always full, so skeletonization happens on the whole image frame.
-        if self.cfg.branch_awareness > 0.0:
-            print("Computing branch awareness map...")
-            try:
-                from skimage.morphology import skeletonize
-            except ImportError:
-                print("Warning: skimage not found, branch awareness disabled")
-                self.branch_weight = torch.ones((B,H,W), device=device)
-                return
-
-            bw = []
-            mask_cpu_bool = (self.mask > 0).cpu().numpy()
-            for b in range(B):
-                sk = skeletonize(mask_cpu_bool[b]).astype(np.uint8)
-                if np.sum(sk) == 0: # Handle case where skeletonization yields nothing
-                     print(f"Warning: Skeletonization of mask for batch {b} resulted in empty skeleton. Branch weight set to 1.")
-                     dist_norm = np.zeros((H,W), dtype=np.float32) # Set distance to 0 -> weight to 1
-                else:
-                    # Calculate distance to the non-zero skeleton pixels
-                    dist_to_skel = cv2.distanceTransform(1-sk, cv2.DIST_L2, 3) # Distance to nearest 1 (skeleton)
-                    # Normalize distance robustly
-                    max_dist = dist_to_skel.max()
-                    dist_norm = dist_to_skel / (max_dist + 1e-8) if max_dist > 0 else dist_to_skel
-                # Weight is inversely proportional to distance (1 near skeleton, 0 far)
-                bw.append(1.0 - torch.from_numpy(dist_norm))
-            self.branch_weight = torch.stack(bw).to(device).float()
-            print("Branch awareness map computed.")
-        else:
-            self.branch_weight = torch.ones((B,H,W), device=device)
-
 
     # ────────────────────────────────────────────────────────────────────────
     #  SEED PLACEMENT
@@ -361,30 +307,10 @@ class OrganicFillBatch:
         # Identify boundary cells: not filled, but have a filled neighbour, and are within the mask
         has_filled_neighbour = (neighbours.squeeze(1) > 0) & (self.grid == 0)
 
-        # Calculate base growth probability P = confidence * branch_weight
-        # Branch weight is 1 if awareness is off or mask is full
-        P = self.confidence * self.branch_weight
-
-        # --- Directional flow bias via depth gradient ---
-        # Apply bias if strength > 0 and depth map exists
-        if self.cfg.directional_flow > 0.0 and self.depth is not None:
-            # Calculate depth gradient magnitude
-            d_norm = _normalise(self.depth)
-            grad_mag = _sobel_grad(d_norm)
-            grad_mag_norm = _normalise(grad_mag) # Normalize gradient magnitude 0-1
-
-            # Bias probability: Increase probability in direction of *lower* depth gradient
-            # We use (1 - grad_mag_norm) - areas with low gradient get higher bias
-            # Additive bias factor - adjust strength as needed
-            flow_bias = (1.0 - grad_mag_norm) * self.cfg.directional_flow # Use configured strength
-            P = P * (1.0 + flow_bias) # Modulate base probability
-            P = torch.clamp(P, 0, 1) # Ensure probability stays within [0,1]
+        P = self.confidence
 
         # --- Pulsating threshold ---
         thr = self.cfg.growth_threshold
-        if self.cfg.pulsate_strength > 0:
-            thr += self.cfg.pulsate_strength * math.sin(2 * math.pi * self.frame_count / 60) # 60 steps per cycle
-
 
         # --- Determine potential growth cells ---
         # Must be:
@@ -478,9 +404,6 @@ class OrganicFillNode:
                 "depth_map": ("IMAGE", {}),    # Optional: BHWC/HWC Depth Map (float 0-1)
                 "canny_map": ("IMAGE", {}),    # Optional: BHWC/HWC Canny Edges (float 0-1)
                 "start_field": ( [sf.value for sf in StartField], {"default": StartField.CENTER.value} ),
-                "pulsate_strength": ("FLOAT", {"default": 0.0, "min":0.0, "max":1.0, "step":0.01}),
-                "directional_flow": ("FLOAT", {"default": 0.0, "min":0.0, "max":2.0, "step":0.05}), # Strength of depth gradient bias
-                "branch_awareness": ("FLOAT", {"default": 0.0, "min":0.0, "max":1.0, "step":0.01}), # Prefer skeleton
                 "max_steps": ("INT", {"default":2000, "min":1, "max":10000}),
                 "growth_threshold": ("FLOAT", {"default": 0.6, "min": 0.0, "max": 1.0, "step": 0.01}),
                 "seed_radius": ("INT", {"default": 5, "min": 1, "max": 50}),
@@ -506,9 +429,6 @@ class OrganicFillNode:
                 depth_map: Optional[torch.Tensor] = None, # BHWC/HWC
                 canny_map: Optional[torch.Tensor] = None, # BHWC/HWC
                 start_field: str = StartField.CENTER.value,
-                pulsate_strength: float = 0.0,
-                directional_flow: float = 0.0,
-                branch_awareness: float = 0.0,
                 max_steps: int = 2000,
                 growth_threshold: float = 0.6,
                 seed_radius: int = 5,
@@ -601,9 +521,6 @@ class OrganicFillNode:
             stability_threshold=stability_threshold,
             noise_low=noise_low,
             noise_high=noise_high,
-            pulsate_strength=pulsate_strength,
-            directional_flow=directional_flow,
-            branch_awareness=branch_awareness,
             lab_gradient_scale=lab_gradient_scale,
             device=device
         )
@@ -689,7 +606,6 @@ if __name__ == "__main__":
     import os
     import matplotlib
     matplotlib.use('Agg') # Use non-interactive backend for saving files
-    # Assume fill_utils provides these functions if running standalone
     from fill_utils import load_image, save_final_mask, save_frames_as_gif, visualize_inputs, visualize_frames_grid, visualize_final_result
 
     def run_test_case(test_config: Dict[str, Any], output_dir: str):
@@ -710,9 +626,9 @@ if __name__ == "__main__":
         # --- 2. Load Optional Auxiliary Maps ---
         depth_path = test_config.get("depth")
         canny_path = test_config.get("canny")
-        sam_path = test_config.get("SAM")
+        sam_path = test_config.get("sam")
 
-        # load_image returns HWC uint8, convert to float 0-1
+        # load_image returns HWC tensor, convert to BHWC
         def _load_aux(path, size):
             if not path or not os.path.exists(path): return None
             img = load_image(path, size)
@@ -743,9 +659,6 @@ if __name__ == "__main__":
             "canny_map": canny_map_bhwc,   # BHWC float or None
             "max_steps": test_config.get("max_steps", 500),
             "start_field": test_config.get("start_field", StartField.CENTER.value),
-            "pulsate_strength": test_config.get("pulsate_strength", 0.0),
-            "directional_flow": test_config.get("directional_flow", 0.0),
-            "branch_awareness": test_config.get("branch_awareness", 0.0),
             "growth_threshold": test_config.get("growth_threshold", 0.6),
             "seed_radius": test_config.get("seed_radius", 5),
             "stability_threshold": test_config.get("stability_threshold", 20),
@@ -782,7 +695,6 @@ if __name__ == "__main__":
 
         print(f"--- Test {test_name} complete. Results saved to {output_dir}/ ---")
 
-
     # --- Define Test Setup ---
     script_dir = os.path.dirname(__file__)
     test_dir = os.path.join(script_dir, "test_assets")
@@ -791,31 +703,23 @@ if __name__ == "__main__":
 
     # --- Define Test Cases ---
     test_cases = [
-        {   # Test 1: Only Input Image (should use LAB gradient)
-            "name": "img2_depth_only",
-            "input": os.path.join(test_dir, "img2.jpg"),
-            "depth": os.path.join(test_dir, "img2_depth.jpg"),
-            "max_steps": 1000,
-            "start_field": StartField.BOTTOM_CENTER.value,
-            "lab_gradient_scale": 10.0,
+        {
+            "name": "tree",
+            "input": os.path.join(test_dir, "tree.jpg"),
+            "depth": os.path.join(test_dir, "tree_depth.jpg"),
+            #"canny": os.path.join(test_dir, "tree_canny.jpg"),
+            #"hed": os.path.join(test_dir, "tree_hed.jpg"),
+            #"sam": os.path.join(test_dir, "tree_sam.jpg"),
+            "start_field": StartField.BOTTOM_CENTER.value
         },
-        {   # Test 2: Input + Depth + Canny
-            "name": "img2_depth_scribble",
-            "input": os.path.join(test_dir, "img2.jpg"),
-            "depth": os.path.join(test_dir, "img2_depth.jpg"),
-            "canny": os.path.join(test_dir, "img2_scribble.jpg"),
-            "start_field": StartField.BOTTOM_CENTER.value,
-            #"directional_flow": 0.5, # Set strength instead of bool
-            "max_steps": 1000
-        },
-        {   # Test 2: Input + Depth + Canny
-            "name": "pannehuis_depth_scribble",
-            "input": os.path.join(test_dir, "pannehuis.jpeg"),
-            "depth": os.path.join(test_dir, "pannehuis_depth.jpg"),
-            "canny": os.path.join(test_dir, "pannehuis_canny.jpg"),
-            "start_field": StartField.BOTTOM_CENTER.value,
-            #"directional_flow": 0.5, # Set strength instead of bool
-            "max_steps": 1000
+        {
+            "name": "church",
+            "input": os.path.join(test_dir, "church.jpg"),
+            #"depth": os.path.join(test_dir, "church_depth.jpg"),
+            #"canny": os.path.join(test_dir, "church_canny.jpg"),
+            "hed": os.path.join(test_dir, "church_hed.jpg"),
+            "sam": os.path.join(test_dir, "church_sam.jpg"),
+            "start_field": StartField.BOTTOM_CENTER.value
         }
     ]
 

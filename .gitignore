@@ -6,3 +6,7 @@ old_example_code/
 .env
 ip_adapter_utils/img_embeds
 video_utils/test_output
+
+*CLAUDE.md
+video_utils/test_output
+video_utils/test_assets
