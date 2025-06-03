@@ -22,13 +22,11 @@ except:
 
 @dataclass
 class FillNodeConfig:
-    growth_threshold: float = 0.8
-    stability_threshold: int = 20
-    active_region_padding: int = 1
-    barrier_jump_power: float = 0.1
+    growth_threshold: float = 0.9  # Lower threshold to allow more growth
+    barrier_jump_power: float = 0.1  # Higher barrier jump to overcome high probability areas
     seed: int = 42  # Random seed for reproducibility
     saturation_window: int = 15
-    saturation_threshold: float = 1e-3
+    saturation_threshold: float = 1e-5
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
     # Growth probability map weights for weighted combination
     weight_lab: float = 0.01
@@ -36,11 +34,12 @@ class FillNodeConfig:
     weight_depth: float = 2.0
     weight_canny: float = 0.1
     weight_hed: float = 0.5
+
     max_steps: int = 5000
     n_frames: int = 100
     processing_resolution: int = 1024
     # Additional algorithm constants
-    uniform_high_prob: float = 0.6
+    uniform_high_prob: float = 0.9
     barrier_override_scaling: float = 0.5
     overlay_alpha: float = 0.4
 
@@ -169,8 +168,6 @@ class OrganicFillBatch:
         
         # Grids
         self.filled_region = torch.zeros_like(self.mask)
-        self.activity_counter = torch.zeros_like(self.mask)
-        self.active_mask = torch.ones_like(self.mask).bool()
         self.frame_count = 0
         self.fill_history: List[torch.Tensor] = []
 
@@ -285,15 +282,6 @@ class OrganicFillBatch:
         # Final normalization of [B,H,W] tensor:
         self.grow_prob = normalize_tensor(combined_grow_prob)
         
-        # Enhance contrast in growth probability for more organic behavior
-        # Apply a sigmoid-like transformation to create more distinct regions
-        enhancement_factor = 3.0  # Controls contrast enhancement
-        self.grow_prob = torch.sigmoid(enhancement_factor * (self.grow_prob - 0.5))
-        
-        # Apply additional non-linear transformation to create more distinct high/low probability regions
-        # This makes the algorithm more likely to follow structures
-        self.grow_prob = self.grow_prob ** 1.5  # Gamma correction to favor higher probabilities
-        
         # Debug: Check if growth probability is too low everywhere
         prob_min, prob_max, prob_mean = self.grow_prob.min().item(), self.grow_prob.max().item(), self.grow_prob.mean().item()
         print(f"Growth probability computed: range=[{prob_min:.3f}, {prob_max:.3f}], mean={prob_mean:.3f}")
@@ -332,50 +320,6 @@ class OrganicFillBatch:
     # ────────────────────────────────────────────────────────────────────────
     #  CORE STEP
     # ────────────────────────────────────────────────────────────────────────
-    def _update_activity(self, new_growth: torch.Tensor):
-        self.activity_counter[new_growth] = 0
-        self.activity_counter[~new_growth] += 1
-        # Pixels that have been stable (not grown) for a while
-        stable = self.activity_counter >= self.cfg.stability_threshold
-
-        # Active region is defined around pixels that are *not* stable
-        active_area = ~stable
-
-        # Dilate the active area to include neighbours
-        padding = self.cfg.active_region_padding
-        # Use max_pool2d for efficient dilation on GPU
-        dilated_active = F.max_pool2d(active_area.float().unsqueeze(1),
-                                     kernel_size=2*padding+1,
-                                     stride=1,
-                                     padding=padding).squeeze(1) > 0
-
-        # Update active mask: must be dilated active area, not yet filled, and within the base mask
-        # Also constrain to areas with reasonable growth probability
-        prob_threshold = 0.1  # Only keep areas with some growth potential active
-        self.active_mask = dilated_active & (self.filled_region < 1) & (self.mask > 0.5) & (self.grow_prob > prob_threshold)
-        
-        # More conservative fallback: If active mask becomes empty but we still have unfilled pixels
-        total_active = torch.sum(self.active_mask).item()
-        total_unfilled = torch.sum((self.filled_region < 1) & (self.mask > 0.5)).item()
-        
-        if total_active == 0 and total_unfilled > 0:
-            print(f"Warning: Active mask became empty with {total_unfilled} unfilled pixels remaining.")
-            # Only reactivate areas with decent growth probability, not everything
-            prob_mask = self.grow_prob > prob_threshold
-            self.active_mask = (self.filled_region < 1) & (self.mask > 0.5) & prob_mask
-            
-            # If still no active areas, gradually lower the probability threshold
-            if torch.sum(self.active_mask).item() == 0 and total_unfilled > 0:
-                print(f"Reactivating with lower probability threshold...")
-                prob_mask = self.grow_prob > 0.05  # Lower threshold
-                self.active_mask = (self.filled_region < 1) & (self.mask > 0.5) & prob_mask
-                
-                # Final fallback only if absolutely necessary
-                if torch.sum(self.active_mask).item() == 0 and total_unfilled > 0:
-                    print(f"Final fallback: reactivating all unfilled pixels.")
-                    self.activity_counter.fill_(0)
-                    self.active_mask = (self.filled_region < 1) & (self.mask > 0.5)
-
     def step(self):
         self.frame_count += 1
         B,H,W = self.B,self.H,self.W
@@ -388,13 +332,22 @@ class OrganicFillBatch:
 
         P = self.grow_prob
 
+        # DEBUG: Track key metrics
+        total_filled = torch.sum(self.filled_region).item()
+        total_unfilled = torch.sum((self.filled_region == 0) & (self.mask > 0.5)).item()
+        total_with_neighbor = torch.sum(has_filled_neighbour).item()
+        
+        if self.frame_count % 10 == 0 or self.frame_count < 5:  # Print every 10 steps or first 5 steps
+            prob_min, prob_max, prob_mean = P.min().item(), P.max().item(), P.mean().item()
+            print(f"Step {self.frame_count}: filled={total_filled}, unfilled={total_unfilled}, with_neighbor={total_with_neighbor}")
+            print(f"  Growth prob: min={prob_min:.4f}, max={prob_max:.4f}, mean={prob_mean:.4f}")
+
         # --- Determine potential growth cells ---
         # Must be:
         # 1. Not already filled (grid == 0)
         # 2. Inside the main mask (mask > 0)
         # 3. Have a filled neighbour (has_filled_neighbour)
-        # 4. Be within the active region (active_mask)
-        potential_growth_base = (self.filled_region == 0) & (self.mask > 0.5) & has_filled_neighbour & self.active_mask
+        potential_growth_base = (self.filled_region == 0) & (self.mask > 0.5) & has_filled_neighbour
 
         # --- Barrier Jumping Logic ---
         # Convert barrier_jump_power (0-1) to effective noise parameters
@@ -407,20 +360,25 @@ class OrganicFillBatch:
             # No barrier jumping - must respect probability map completely
             potential_growth = potential_growth_base & (P > self.cfg.growth_threshold)
             effective_prob = P
+            relaxed_threshold = self.cfg.growth_threshold
         else:
             # Allow barrier jumping with increasing strength
             # Use exponential scaling to make the effect more dramatic at higher values
-            barrier_override = self.cfg.barrier_jump_power
             
             # Mix the original probability with a barrier-override probability
             # At low jump_power: mostly use original P
             # At high jump_power: mostly use a uniform high probability
-            uniform_high_prob = self.cfg.uniform_high_prob  # Base probability when ignoring barriers
-            effective_prob = (1 - barrier_override) * P + barrier_override * uniform_high_prob
+            alpha = self.cfg.barrier_jump_power
+            effective_prob = (1 - alpha) * P + alpha * self.cfg.uniform_high_prob
             
             # For potential growth, also relax the threshold requirement based on jump strength
-            relaxed_threshold = self.cfg.growth_threshold * (1 - barrier_override * self.cfg.barrier_override_scaling)  # Can reduce threshold by up to barrier_override_scaling
+            relaxed_threshold = self.cfg.growth_threshold * (1 - alpha * self.cfg.barrier_override_scaling)  # Can reduce threshold by up to barrier_override_scaling
             potential_growth = potential_growth_base & ((P > relaxed_threshold))
+
+        # DEBUG: Track potential growth areas
+        total_potential_base = torch.sum(potential_growth_base).item()
+        total_potential_final = torch.sum(potential_growth).item()
+        total_above_threshold = torch.sum((self.filled_region == 0) & (self.mask > 0.5) & (P > relaxed_threshold)).item()
 
         # --- Stochastic Growth ---
         # Generate random noise for stochastic decision making
@@ -428,19 +386,28 @@ class OrganicFillBatch:
         
         # New growth happens where potential exists AND noise < effective_probability
         new_growth = potential_growth & (noise < effective_prob)
+        total_new_growth = torch.sum(new_growth).item()
 
-        # Update grid and activity
+        # DEBUG: Print detailed step info
+        if self.frame_count % 10 == 0 or self.frame_count < 5 or total_new_growth == 0:
+            eff_prob_min, eff_prob_max, eff_prob_mean = effective_prob.min().item(), effective_prob.max().item(), effective_prob.mean().item()
+            print(f"  Potential: base={total_potential_base}, final={total_potential_final}, above_thresh={total_above_threshold}")
+            print(f"  Effective prob: min={eff_prob_min:.4f}, max={eff_prob_max:.4f}, mean={eff_prob_mean:.4f}")
+            print(f"  Threshold: {relaxed_threshold:.4f}, New growth: {total_new_growth}")
+            if total_new_growth == 0 and total_potential_final > 0:
+                print(f"  WARNING: No growth despite {total_potential_final} potential pixels!")
+
+        # Update grid
         self.filled_region[new_growth] = 1.0
-        self._update_activity(new_growth)
 
         # Calculate fill ratio and track history
         fill_ratio = self.fill_ratio()
         self.fill_history.append(fill_ratio.clone()) # Store fill ratio per batch item
 
-        # Return active pixel count for progress reporting
-        active_count = torch.sum(self.active_mask).item() # Total active pixels across batch
+        # Return total boundary pixels for progress reporting
+        boundary_count = torch.sum(has_filled_neighbour & (self.filled_region == 0) & (self.mask > 0.5)).item()
         avg_fill_ratio = fill_ratio.mean().item()
-        return active_count, avg_fill_ratio
+        return boundary_count, avg_fill_ratio
 
     # ────────────────────────────────────────────────────────────────────────
     #  HELPERS
@@ -468,14 +435,26 @@ class OrganicFillBatch:
         max_change = torch.max(torch.abs(recent_history[1:] - recent_history[:-1]), dim=0)[0]
         saturated = max_change < self.cfg.saturation_threshold
 
-        # Check 3: No more active pixels available to fill within the mask (per batch item)
-        # Active mask is [B, H, W], sum over H, W -> [B]
-        # Simplified: self.mask > 0 is always true
-        no_more_active = (self.active_mask & (self.filled_region == 0)).sum(dim=(1,2)) == 0
+        # Check 3: No more boundary pixels available to fill within the mask (per batch item)
+        # Calculate boundary pixels for each batch item: unfilled pixels with filled neighbors
+        padded_grid = F.pad(self.filled_region.unsqueeze(1), (1,1,1,1), mode='constant', value=0)
+        neighbours = F.max_pool2d(padded_grid, kernel_size=3, stride=1, padding=0)
+        has_filled_neighbour_batch = (neighbours.squeeze(1) > 0) & (self.filled_region == 0)
+        boundary_pixels = has_filled_neighbour_batch & (self.mask > 0.5)
+        no_more_boundary = boundary_pixels.sum(dim=(1,2)) == 0  # [B] - True if no boundary pixels for that batch
 
-        # Complete if *both* saturated AND no more active pixels for that batch item
-        # Use logical AND element-wise for the batch
-        is_done = saturated & no_more_active
+        # Complete if saturated OR no more boundary pixels for that batch item
+        # Use logical OR element-wise for the batch (either condition should stop)
+        is_done = saturated | no_more_boundary
+
+        # DEBUG: Print completion status details
+        if self.frame_count % 10 == 0 or torch.any(no_more_boundary) or torch.any(saturated):
+            boundary_count_per_batch = boundary_pixels.sum(dim=(1,2))
+            print(f"  Completion check: saturation_window={len(self.fill_history)}/{self.cfg.saturation_window}")
+            print(f"  Max changes: {max_change.cpu().numpy()}, threshold={self.cfg.saturation_threshold}")
+            print(f"  Saturated: {saturated.cpu().numpy()}, No boundary: {no_more_boundary.cpu().numpy()}")
+            print(f"  Boundary pixels per batch: {boundary_count_per_batch.cpu().numpy()}")
+            print(f"  Is done: {is_done.cpu().numpy()}")
 
         # The whole process is complete if *all* batch items are done
         return torch.all(is_done)
@@ -517,10 +496,8 @@ class OrganicFillNode:
                 "weight_hed": ("FLOAT", {"default": default_config.weight_hed, "min": 0.0, "max": 5.0, "step": 0.01}),
                 "seed": ("INT", {"default": default_config.seed, "min": 0, "max": 2147483647}),
                 "processing_resolution": ("INT", {"default": default_config.processing_resolution, "min": 256, "max": 4096, "step": 64}),
-                "stability_threshold": ("INT", {"default": default_config.stability_threshold, "min": 1, "max": 100}),
-                "active_region_padding": ("INT", {"default": default_config.active_region_padding, "min": 0, "max": 20}),
                 "saturation_window": ("INT", {"default": default_config.saturation_window, "min": 5, "max": 100}),
-                "saturation_threshold": ("FLOAT", {"default": default_config.saturation_threshold, "min": 1e-6, "max": 1e-1, "step": 1e-4}),
+                "saturation_threshold": ("FLOAT", {"default": default_config.saturation_threshold, "min": 1e-6, "max": 1e-4, "step": 1e-5}),
             }
         }
 
@@ -554,8 +531,6 @@ class OrganicFillNode:
                 weight_hed: Optional[float] = None,
                 seed: Optional[int] = None,
                 processing_resolution: Optional[int] = None,
-                stability_threshold: Optional[int] = None,
-                active_region_padding: Optional[int] = None,
                 saturation_window: Optional[int] = None,
                 saturation_threshold: Optional[float] = None,
                 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]: # Return mask BHW, frames NBHWC, grow_prob BHW, overlayed_fill_preview NHWC
@@ -595,8 +570,6 @@ class OrganicFillNode:
             'weight_canny': weight_canny,
             'weight_hed': weight_hed,
             'seed': seed,
-            'stability_threshold': stability_threshold,
-            'active_region_padding': active_region_padding,
             'saturation_window': saturation_window,
             'saturation_threshold': saturation_threshold,
         }
@@ -665,19 +638,15 @@ class OrganicFillNode:
         # Resize auxiliary maps
         if SAM_map is not None:
             SAM_map = _resize_auxiliary_map(SAM_map, processing_resolution)
-            print(f"Resized SAM map to: {SAM_map.shape if SAM_map is not None else None}")
         
         if depth_map is not None:
             depth_map = _resize_auxiliary_map(depth_map, processing_resolution)
-            print(f"Resized depth map to: {depth_map.shape if depth_map is not None else None}")
             
         if canny_map is not None:
             canny_map = _resize_auxiliary_map(canny_map, processing_resolution)
-            print(f"Resized canny map to: {canny_map.shape if canny_map is not None else None}")
             
         if hed_map is not None:
             hed_map = _resize_auxiliary_map(hed_map, processing_resolution)
-            print(f"Resized HED map to: {hed_map.shape if hed_map is not None else None}")
         
         # Update dimensions after resizing
         B, H, W, C = input_image.shape
@@ -814,19 +783,31 @@ class OrganicFillNode:
         frames: List[torch.Tensor] = [] # Store ALL BHW frames during simulation
         step = 0
         
+        print(f"Starting fill loop with max_steps={max_steps}")
         while step < max_steps:
-            active_pixels, fill_ratio = fill.step()
+            boundary_pixels, fill_ratio = fill.step()
             frames.append(fill.get_frame())
 
+            # DEBUG: Print progress every 50 steps or when no boundary pixels
+            if step % 50 == 0 or boundary_pixels == 0:
+                print(f"Step {step}: boundary_pixels={boundary_pixels}, fill_ratio={fill_ratio:.4f}")
+                
             if fill.is_complete():
-                print(f"Fill completed early at step {step} due to saturation or no active pixels.")
+                print(f"Fill completed early at step {step} due to is_complete() = True.")
+                print(f"--> Final fill ratio: {fill_ratio:.4f}")
                 break
+                
+            # DEBUG: Early warning if stuck
+            if step > 100 and boundary_pixels == 0:
+                print(f"WARNING: No boundary pixels at step {step}, but not marked complete!")
+                print(f"  Current fill ratio: {fill_ratio:.4f}")
 
             step += 1
 
         final_mask_bhw = fill.get_frame() # BHW float mask
         total_time = time.time() - start_time
         print(f"Organic fill finished in {total_time:.2f}s after {step} steps.")
+        print(f"Final fill ratio: {fill.fill_ratio().mean().item():.4f}")
 
         # --- Extract exactly n_frames equally spaced frames ---
         if not frames: # Handle case where no frames were generated (shouldn't happen)
@@ -990,7 +971,9 @@ if __name__ == "__main__":
         # --- 4. Prepare Node Parameters ---
         # Create a simple seed_locations mask (center point for testing)
         seed_locations_mask = torch.zeros((1, H, W), dtype=torch.float32)
-        seed_locations_mask[0, H//2, W//2] = 1.0  # Single seed at center
+        # Add a small white blob in the center:
+        blob_size = 10
+        seed_locations_mask[0, H//2-blob_size:H//2+blob_size, W//2-blob_size:W//2+blob_size] = 1.0
 
         # Get default config for any missing test parameters
         default_config = FillNodeConfig()
@@ -1009,8 +992,6 @@ if __name__ == "__main__":
             "seed": test_config.get("seed", default_config.seed),
             "processing_resolution": test_config.get("processing_resolution", default_config.processing_resolution),
             # Advanced FillNodeConfig parameters
-            "stability_threshold": test_config.get("stability_threshold", default_config.stability_threshold),
-            "active_region_padding": test_config.get("active_region_padding", default_config.active_region_padding),
             "saturation_window": test_config.get("saturation_window", default_config.saturation_window),
             "saturation_threshold": test_config.get("saturation_threshold", default_config.saturation_threshold),
         }
