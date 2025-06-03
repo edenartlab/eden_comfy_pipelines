@@ -35,14 +35,11 @@ class StartField(Enum):
 @dataclass
 class FillNodeConfig:
     growth_threshold: float = 0.6
-    seed_radius: int = 5
-    stability_threshold: int = 20
     active_region_padding: int = 3
     noise_low: float = 0.0
     noise_high: float = 1.2
     saturation_window: int = 15
     saturation_threshold: float = 1e-3
-    lab_gradient_scale: float = 5.0 # Scale factor for LAB L* gradient influence
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
     # Growth probability map weights for weighted combination
     weight_lab: float = 0.01      # Weight for LAB gradient grow_prob
@@ -204,7 +201,7 @@ class OrganicFillBatch:
         print("Computing LAB L* gradient growth probability...")
         l_channel = _image_bhwc_to_lab_l_bhw(self.input_image)  # [B,H,W]
         l_grad_mag = _sobel_grad(l_channel)
-        lab_grow_prob = torch.exp(-l_grad_mag * self.cfg.lab_gradient_scale)
+        lab_grow_prob = 1 - l_grad_mag
         lab_grow_prob = normalize_tensor(lab_grow_prob)  # [B,H,W] 0-1
         
         if save_maps:
@@ -333,11 +330,9 @@ class OrganicFillBatch:
             # Apply circular seed around (y, x), respecting the mask `m`
             yy, xx = torch.meshgrid(torch.arange(H,device=self.device), torch.arange(W,device=self.device), indexing='ij')
             dist_sq = (yy - y)**2 + (xx - x)**2
-            circle = dist_sq <= self.cfg.seed_radius**2 # The actual seed shape
+            seed_radius = 6
+            circle = dist_sq <= seed_radius**2 # The actual seed shape
             self.grid[b][circle] = 1.0 # Simplified: m is True
-
-        print("Seed placement complete.")
-
 
     # ────────────────────────────────────────────────────────────────────────
     #  CORE STEP
@@ -346,7 +341,8 @@ class OrganicFillBatch:
         self.activity_counter[new_growth] = 0
         self.activity_counter[~new_growth] += 1
         # Pixels that have been stable (not grown) for a while
-        stable = self.activity_counter >= self.cfg.stability_threshold
+        stability_threshold = 20
+        stable = self.activity_counter >= stability_threshold
 
         # Active region is defined around pixels that are *not* stable
         active_area = ~stable
@@ -468,11 +464,8 @@ class OrganicFillNode:
                 "start_field": ( [sf.value for sf in StartField], {"default": StartField.CENTER.value} ),
                 "max_steps": ("INT", {"default":2000, "min":1, "max":10000}),
                 "growth_threshold": ("FLOAT", {"default": 0.6, "min": 0.0, "max": 1.0, "step": 0.01}),
-                "seed_radius": ("INT", {"default": 5, "min": 1, "max": 50}),
-                "stability_threshold": ("INT", {"default": 20, "min": 1, "max": 100}),
                 "noise_low": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 2.0, "step": 0.01}),
                 "noise_high": ("FLOAT", {"default": 1.2, "min": 0.0, "max": 2.0, "step": 0.01}),
-                "lab_gradient_scale": ("FLOAT", {"default": 5.0, "min": 0.0, "max": 50.0, "step": 0.1}), # Only used if no other maps
             }
         }
 
@@ -496,11 +489,8 @@ class OrganicFillNode:
                 start_field: str = StartField.CENTER.value,
                 max_steps: int = 2000,
                 growth_threshold: float = 0.6,
-                seed_radius: int = 5,
-                stability_threshold: int = 20,
                 noise_low: float = 0.0,
-                noise_high: float = 1.2,
-                lab_gradient_scale: float = 5.0,
+                noise_high: float = 1.2
                 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]: # Return mask BHW, frames NBHWC, grow_prob BHW, overlayed_fill_preview NHWC
 
         start_time = time.time()
@@ -607,11 +597,8 @@ class OrganicFillNode:
         # --- Configure and Initialize Fill ---
         cfg = FillNodeConfig(
             growth_threshold=growth_threshold,
-            seed_radius=seed_radius,
-            stability_threshold=stability_threshold,
             noise_low=noise_low,
             noise_high=noise_high,
-            lab_gradient_scale=lab_gradient_scale,
             device=device
         )
 
@@ -782,11 +769,8 @@ if __name__ == "__main__":
             "max_steps": test_config.get("max_steps", 1000),
             "start_field": test_config.get("start_field", StartField.CENTER.value),
             "growth_threshold": test_config.get("growth_threshold", 0.6),
-            "seed_radius": test_config.get("seed_radius", 5),
-            "stability_threshold": test_config.get("stability_threshold", 20),
             "noise_low": test_config.get("noise_low", 0.0),
             "noise_high": test_config.get("noise_high", 1.2),
-            "lab_gradient_scale": test_config.get("lab_gradient_scale", 5.0),
         }
 
         # --- 5. Run Organic Fill Node ---
