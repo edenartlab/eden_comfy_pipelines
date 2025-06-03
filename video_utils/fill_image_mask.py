@@ -498,7 +498,7 @@ class OrganicFillNode:
                 hed_map: Optional[torch.Tensor] = None, # BHWC/HWC
                 start_field: str = StartField.CENTER.value,
                 max_steps: int = 2000,
-                n_frames: int = 20,
+                n_frames: int = 100,
                 growth_threshold: float = 0.6,
                 noise_low: float = 0.0,
                 noise_high: float = 1.2,
@@ -713,35 +713,14 @@ class OrganicFillNode:
         )
 
         # --- Run Fill Steps ---
-        frames: List[torch.Tensor] = [] # Store BHW frames
+        frames: List[torch.Tensor] = [] # Store ALL BHW frames during simulation
         step = 0
-        print("Starting organic fill process...")
-        # More frequent reporting initially, then less often
-        report_steps = set([0, 1, 2, 3, 4, 5, 10, 20, 50] + list(range(100, max_steps + 1, 100)))
         
-        # Calculate equally spaced save_frame_steps based on n_frames
-        if n_frames <= 1:
-            save_frame_steps = set([0])
-        else:
-            # Create equally spaced steps from 0 to max_steps-1
-            step_indices = [int(i * (max_steps - 1) / (n_frames - 1)) for i in range(n_frames)]
-            save_frame_steps = set(step_indices)
-        
-        print(f"Will save {len(save_frame_steps)} frames at steps: {sorted(list(save_frame_steps))[:10]}{'...' if len(save_frame_steps) > 10 else ''}")
-
         while step < max_steps:
             active_pixels, fill_ratio = fill.step()
+            frames.append(fill.get_frame())
 
-            if step in save_frame_steps:
-                 frames.append(fill.get_frame().clone()) # Clone BHW tensor
-
-            # Print progress updates at designated steps or if complete
-            is_complete = fill.is_complete()
-            if step in report_steps or is_complete:
-                elapsed = time.time() - start_time
-                print(f"Step {step}/{max_steps} | Fill ratio: {fill_ratio:.4f} | Active px: {active_pixels} | Elapsed: {elapsed:.2f}s")
-
-            if is_complete:
+            if fill.is_complete():
                 print(f"Fill completed early at step {step} due to saturation or no active pixels.")
                 break
 
@@ -751,21 +730,38 @@ class OrganicFillNode:
         total_time = time.time() - start_time
         print(f"Organic fill finished in {total_time:.2f}s after {step} steps.")
 
+        # --- Extract exactly n_frames equally spaced frames ---
+        if not frames: # Handle case where no frames were generated (shouldn't happen)
+            print("Organic fill warning: No frames were generated.")
+            # Just return n_frames of ones:
+            selected_frames = [torch.ones((B, H, W), device=device, dtype=torch.float32)] * n_frames
+        elif len(frames) < n_frames:
+            # Repeat the last frame to reach n_frames:
+            selected_frames = frames + [frames[-1]] * (n_frames - len(frames))
+        else:
+            # Extract exactly n_frames equally spaced frames
+            if n_frames == 1:
+                selected_frames = [frames[-1]]
+            else:
+                # Create equally spaced indices from 0 to len(frames)-1
+                frame_indices = [int(i * (len(frames) - 1) / (n_frames - 1)) for i in range(n_frames)]
+                selected_frames = [frames[i] for i in frame_indices]
+            print(f"Extracted {len(selected_frames)} equally spaced frames from {len(frames)} total frames")
+
         # --- Prepare Outputs ---
         # Final Mask: BHW (ComfyUI MASK format)
         # Frames Preview: Stack frames [N, B, H, W], convert to NBHWC for IMAGE type
-        if not frames: # Handle case where no frames were saved (e.g., max_steps=0)
-            print("Warning: No frames were generated.")
+        if not selected_frames: # Handle case where no frames were selected (should not happen)
+            print("Warning: No frames were selected.")
             frames_preview_nbhwc = torch.zeros((1, B, H, W, 1), device=device, dtype=torch.float32) # Placeholder
             overlayed_fill_preview_nhwc = torch.zeros((1, H, W, 3), device=device, dtype=torch.float32) # Placeholder
         else:
-            frames_nbhw = torch.stack(frames) # [N, B, H, W]
+            frames_nbhw = torch.stack(selected_frames) # [N, B, H, W]
             # Convert NBHW (0/1 float) to NBHWC (grayscale float 0-1) for IMAGE output
             frames_preview_nbhwc = frames_nbhw.unsqueeze(-1).expand(-1, -1, -1, -1, 3) # Repeat channel for RGB
 
             # For simplicity in ComfyUI previews, often only the first batch item is shown.
             # We'll return all batch items, but downstream nodes might only use frames_preview_nbhwc[:, 0, ...]
-            # Let's just return the first batch item's frames for preview? Or all?
             # Decision: Return only first batch item frames for preview to avoid huge tensors if batch > 1
             frames_preview_nhwc = frames_preview_nbhwc[:, 0, :, :, :] # [N, H, W, C]
             print(f"Returning final mask (B={B}, H={H}, W={W}) and frames preview (N={frames_preview_nhwc.shape[0]}, H={H}, W={W}, C=3) for batch item 0.")
