@@ -20,18 +20,6 @@ except:
 #  CONFIG & ENUMS
 # ────────────────────────────────────────────────────────────────────────────────
 
-class StartField(Enum):
-    TOP_LEFT = "top_left"
-    TOP_RIGHT = "top_right"
-    BOTTOM_LEFT = "bottom_left"
-    BOTTOM_RIGHT = "bottom_right"
-    CENTER = "center"
-    TOP_CENTER = "top_center"
-    BOTTOM_CENTER = "bottom_center"
-    LEFT_CENTER = "left_center"
-    RIGHT_CENTER = "right_center"
-    RANDOM = "random"
-
 @dataclass
 class FillNodeConfig:
     growth_threshold: float = 0.6
@@ -141,19 +129,21 @@ class OrganicFillBatch:
     def __init__(self,
                  input_image: torch.Tensor, # [B,H,W,C] float 0-1 RGB/Gray
                  base_mask: torch.Tensor,   # [B,H,W] float 0/1 (Note: Currently always full image)
+                 seed_locations: torch.Tensor, # [B,H,W] float 0/1 binary mask for seed placement
                  depth: Optional[torch.Tensor] = None,  # [B,H,W] float 0‑1
                  canny: Optional[torch.Tensor] = None,  # [B,H,W] float/bool
                  hed: Optional[torch.Tensor] = None,  # [B,H,W] float/bool
                  sam: Optional[torch.Tensor] = None,    # [B,H,W,C] RGB float 0‑1 (segmentation map)
-                 start_field: StartField = StartField.RANDOM,
                  config: FillNodeConfig = None):
 
         self.cfg = config or FillNodeConfig()
         self.device = torch.device(self.cfg.device)
 
         self.input_image = input_image.to(self.device)
-        self.mask = base_mask.to(self.device).float()  # 1 inside, 0 outside
-        # Note: self.mask is currently always torch.ones((B, H, W)) as initialized in execute()
+        self.mask = base_mask.to(self.device).float()
+        self.mask = normalize_tensor(self.mask) # threshold in/out hardcoded at 0.5
+
+        self.seed_locations = seed_locations.to(self.device).float()  # 1 for seed locations, 0 otherwise
         B, H, W = self.mask.shape
         self.B, self.H, self.W = B, H, W
 
@@ -177,7 +167,7 @@ class OrganicFillBatch:
 
         print(f"Preparing growth probability fields on {self.device}...")
         self._prepare_grow_prob_fields()
-        self._place_seeds(start_field)
+        self._place_seeds()
 
     # ────────────────────────────────────────────────────────────────────────
     #  GROWTH PROBABILITY FIELD
@@ -287,53 +277,36 @@ class OrganicFillBatch:
     # ────────────────────────────────────────────────────────────────────────
     #  SEED PLACEMENT
     # ────────────────────────────────────────────────────────────────────────
-    def _place_seeds(self, start_field: StartField):
+    def _place_seeds(self):
         B,H,W = self.B,self.H,self.W
 
-        print(f"Placing seeds using {start_field.value} strategy within the mask...")
+        print(f"Placing seeds using seed_locations mask within the mask...")
         for b in range(B):
-            # Determine seed coordinates (y, x)
-            yx = None
-
-            # Standard region selection
-            if yx is None:
-                h2, w2 = H // 2, W // 2
-                thirds_h, thirds_w = H // 3, W // 3
-                sel = torch.zeros_like(self.mask[b], dtype=torch.bool) # Selection region
-
-                if start_field == StartField.RANDOM:
-                    sel = self.mask[b] # Select from anywhere inside mask
-                elif start_field == StartField.TOP_LEFT:      sel[:h2, :w2] = True
-                elif start_field == StartField.TOP_RIGHT:     sel[:h2, w2:] = True
-                elif start_field == StartField.BOTTOM_LEFT:   sel[h2:, :w2] = True
-                elif start_field == StartField.BOTTOM_RIGHT:  sel[h2:, w2:] = True
-                elif start_field == StartField.CENTER:        sel[thirds_h:2*thirds_h, thirds_w:2*thirds_w] = True
-                elif start_field == StartField.TOP_CENTER:    sel[:thirds_h, thirds_w:2*thirds_w] = True
-                elif start_field == StartField.BOTTOM_CENTER: sel[2*thirds_h:, thirds_w:2*thirds_w] = True
-                elif start_field == StartField.LEFT_CENTER:   sel[thirds_h:2*thirds_h, :thirds_w] = True
-                elif start_field == StartField.RIGHT_CENTER:  sel[thirds_h:2*thirds_h, 2*thirds_w:] = True
-
-                # Find valid points intersection of mask and selected region
-                valid_candidates = torch.nonzero(sel, as_tuple=False) # Simplified: m is True
-
-                if valid_candidates.numel() == 0: # If region+mask is empty, fallback to any point in mask
-                    valid_candidates = torch.nonzero(torch.ones_like(sel), as_tuple=False) # Simplified: m is True
-
-                if valid_candidates.numel() > 0:
-                    # Randomly pick one from the candidates
-                    yx = valid_candidates[torch.randint(len(valid_candidates), (1,))]
-                else: # Should not happen if mask `m` was not empty initially
-                    print(f"Error: No valid pixels found for seeding in batch {b} even after fallback. Using center.")
-                    yx = torch.tensor([[H//2, W//2]], device=self.device, dtype=torch.long)
-
-            # Extract y, x coordinates
-            y, x = yx[0, 0], yx[0, 1]
-
-            # Apply circular seed around (y, x), respecting the mask `m`
-            yy, xx = torch.meshgrid(torch.arange(H,device=self.device), torch.arange(W,device=self.device), indexing='ij')
-            dist_sq = (yy - y)**2 + (xx - x)**2
-            circle = dist_sq <= self.cfg.seed_radius**2 # The actual seed shape
-            self.grid[b][circle] = 1.0 # Simplified: m is True
+            # Use seed_locations mask directly to determine where to place seeds
+            seed_mask = self.seed_locations[b] > 0  # Convert to boolean mask
+            
+            # Find all seed locations for this batch item
+            seed_coords = torch.nonzero(seed_mask, as_tuple=False)  # Shape: [N, 2] where N is number of seed pixels
+            
+            if seed_coords.numel() == 0:
+                # No seed locations specified, fallback to center
+                print(f"Warning: No seed locations specified for batch {b}, using center as fallback.")
+                y, x = H // 2, W // 2
+                seed_coords = torch.tensor([[y, x]], device=self.device, dtype=torch.long)
+            
+            # Apply circular seed around each seed location, respecting the mask
+            yy, xx = torch.meshgrid(torch.arange(H, device=self.device), torch.arange(W, device=self.device), indexing='ij')
+            
+            for seed_coord in seed_coords:
+                y, x = seed_coord[0], seed_coord[1]
+                
+                # Create circular region around this seed point
+                dist_sq = (yy - y)**2 + (xx - x)**2
+                circle = dist_sq <= self.cfg.seed_radius**2
+                
+                # Apply seed within the base mask
+                seed_region = circle & (self.mask[b] > 0.5)
+                self.grid[b][seed_region] = 1.0
 
     # ────────────────────────────────────────────────────────────────────────
     #  CORE STEP
@@ -381,7 +354,7 @@ class OrganicFillBatch:
         # 3. Have a filled neighbour (has_filled_neighbour)
         # 4. Be within the active region (active_mask)
         # 5. Have growth probability P > threshold (thr)
-        potential_growth = (self.grid == 0) & (self.mask > 0) & has_filled_neighbour & self.active_mask & (P > thr)
+        potential_growth = (self.grid == 0) & (self.mask > 0.5) & has_filled_neighbour & self.active_mask & (P > thr)
 
         # --- Stochastic Growth ---
         # Add noise only where potential growth is possible
@@ -458,13 +431,14 @@ class OrganicFillNode:
         return {
             "required": {
                 "input_image": ("IMAGE", {}),  # BHWC RGB or Gray (float 0-1)
+                "seed_locations": ("MASK", {}),  # BHW binary mask for seed placement (float 0-1)
             },
             "optional": {
+                "fill_mask": ("MASK", {}),     # Optional: BHW mask defining fillable regions (float 0-1)
                 "SAM_map": ("IMAGE", {}),      # Optional: BHWC/HWC Probability Map (float 0-1)
                 "depth_map": ("IMAGE", {}),    # Optional: BHWC/HWC Depth Map (float 0-1)
                 "canny_map": ("IMAGE", {}),    # Optional: BHWC/HWC Canny Edges (float 0-1)
                 "hed_map": ("IMAGE", {}),      # Optional: BHWC/HWC HED Edges (float 0-1)
-                "start_field": ( [sf.value for sf in StartField], {"default": StartField.CENTER.value} ),
                 "n_frames": ("INT", {"default": 100, "min": 1, "max":10000}),
                 "growth_threshold": ("FLOAT", {"default": 0.9, "min": 0.0, "max": 1.0, "step": 0.01}),
                 "weight_lab": ("FLOAT", {"default": default_config.weight_lab, "min": 0.0, "max": 5.0, "step": 0.01}),
@@ -492,11 +466,12 @@ class OrganicFillNode:
     # ────────────────────────────────────────────────────────────────────────
     def execute(self,
                 input_image: torch.Tensor, # BHWC, float 0-1
+                seed_locations: torch.Tensor, # BHW binary mask for seed placement (float 0-1)
+                fill_mask: Optional[torch.Tensor] = None, # BHW mask defining fillable regions (float 0-1)
                 SAM_map: Optional[torch.Tensor] = None, # BHWC/HWC
                 depth_map: Optional[torch.Tensor] = None, # BHWC/HWC
                 canny_map: Optional[torch.Tensor] = None, # BHWC/HWC
                 hed_map: Optional[torch.Tensor] = None, # BHWC/HWC
-                start_field: str = StartField.CENTER.value,
                 max_steps: int = 2000,
                 n_frames: int = 100,
                 growth_threshold: float = 0.6,
@@ -587,8 +562,32 @@ class OrganicFillNode:
         # Update dimensions after resizing
         B, H, W, C = input_image.shape
 
-        # --- Determine Base Mask ---
-        base_mask = torch.ones((B, H, W), dtype=torch.float32, device=device)
+        # --- Process seed_locations mask ---
+        print(f"Processing seed_locations mask...")
+        if seed_locations.dim() == 2:  # HW -> BHW
+            seed_locations = seed_locations.unsqueeze(0)
+        if seed_locations.shape[0] != B:
+            print(f"Warning: seed_locations batch size {seed_locations.shape[0]} != input batch size {B}. Repeating mask.")
+            seed_locations = seed_locations[0:1, ...].repeat(B, 1, 1)
+        if seed_locations.shape[1:3] != (H, W):
+            print(f"Warning: Resizing seed_locations from {seed_locations.shape[1:3]} to {(H,W)}")
+            seed_locations = F.interpolate(seed_locations.unsqueeze(1).float(), size=(H, W), mode='nearest').squeeze(1)
+        seed_locations = seed_locations.to(device).float()
+
+        # --- Determine Base Mask (Fill Mask) ---
+        if fill_mask is not None:
+            print(f"Processing fill_mask...")
+            if fill_mask.dim() == 2:  # HW -> BHW
+                fill_mask = fill_mask.unsqueeze(0)
+            if fill_mask.shape[0] != B:
+                print(f"Warning: fill_mask batch size {fill_mask.shape[0]} != input batch size {B}. Repeating mask.")
+                fill_mask = fill_mask[0:1, ...].repeat(B, 1, 1)
+            if fill_mask.shape[1:3] != (H, W):
+                print(f"Warning: Resizing fill_mask from {fill_mask.shape[1:3]} to {(H,W)}")
+                fill_mask = F.interpolate(fill_mask.unsqueeze(1).float(), size=(H, W), mode='nearest').squeeze(1)
+            base_mask = fill_mask.to(device).float()
+        else:
+            base_mask = torch.ones((B, H, W), dtype=torch.float32, device=device)
 
         # --- Prepare Optional Auxiliary Maps ---
         # Helper to ensure maps are [B, H, W], float, on correct device
@@ -704,11 +703,11 @@ class OrganicFillNode:
         fill = OrganicFillBatch(
             input_image=input_image, # Pass original BHWC image
             base_mask=base_mask,     # Pass BHW mask
+            seed_locations=seed_locations, # Pass BHW seed locations
             depth=depth_map_bhw,     # Pass BHW depth
             canny=canny_map_bhw,     # Pass BHW canny
             hed=hed_map_bhw,         # Pass BHW hed
             sam=sam_rgb_bhwc,        # Pass BHW samantic probability
-            start_field=StartField(start_field),
             config=cfg
         )
 
@@ -890,14 +889,19 @@ if __name__ == "__main__":
         if canny_map_bhwc is not None: print(f"Loaded Canny map: {canny_map_bhwc.shape}")
 
         # --- 4. Prepare Node Parameters ---
+        # Create a simple seed_locations mask (center point for testing)
+        seed_locations_mask = torch.zeros((1, H, W), dtype=torch.float32)
+        seed_locations_mask[0, H//2, W//2] = 1.0  # Single seed at center
+
         node_params = {
             "input_image": input_img_bhwc, # BHWC float
+            "seed_locations": seed_locations_mask, # BHW binary mask for seed placement (float 0-1)
+            "fill_mask": None,             # Optional BHW mask defining fillable regions (float 0-1)
             "SAM_map": sam_map_bhwc,       # BHWC float or None
             "depth_map": depth_map_bhwc,   # BHWC float or None
             "canny_map": canny_map_bhwc,   # BHWC float or None
             "hed_map": hed_map_bhwc,       # BHWC float or None
             "max_steps": test_config.get("max_steps", 1000),
-            "start_field": test_config.get("start_field", StartField.CENTER.value),
             "growth_threshold": test_config.get("growth_threshold", 0.6),
             "noise_low": test_config.get("noise_low", 0.0),
             "noise_high": test_config.get("noise_high", 1.2),
@@ -971,7 +975,6 @@ if __name__ == "__main__":
             "canny": os.path.join(test_dir, "tree_canny.jpg"),
             "hed": os.path.join(test_dir, "tree_hed.jpg"),
             "sam": os.path.join(test_dir, "tree_sam.jpg"),
-            "start_field": StartField.BOTTOM_CENTER.value
         },
         {
             "name": "church",
@@ -980,7 +983,6 @@ if __name__ == "__main__":
             "canny": os.path.join(test_dir, "church_canny.jpg"),
             "hed": os.path.join(test_dir, "church_hed.jpg"),
             "sam": os.path.join(test_dir, "church_sam.jpg"),
-            "start_field": StartField.BOTTOM_CENTER.value
         },
         {
             "name": "rock",
@@ -989,7 +991,6 @@ if __name__ == "__main__":
             "canny": os.path.join(test_dir, "rock_canny.jpg"),
             "hed": os.path.join(test_dir, "rock_hed.jpg"),
             "sam": os.path.join(test_dir, "rock_sam.jpg"),
-            "start_field": StartField.BOTTOM_CENTER.value
         },
     ]
 
