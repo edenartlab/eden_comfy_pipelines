@@ -31,7 +31,6 @@ class StartField(Enum):
     LEFT_CENTER = "left_center"
     RIGHT_CENTER = "right_center"
     RANDOM = "random"
-    CLOSEST_POINT = "closest_point"  # requires depth map
 
 @dataclass
 class FillNodeConfig:
@@ -96,7 +95,8 @@ class OrganicFillBatch:
                  base_mask: torch.Tensor,   # [B,H,W] float 0/1 (Note: Currently always full image)
                  depth: Optional[torch.Tensor] = None,  # [B,H,W] float 0‑1
                  canny: Optional[torch.Tensor] = None,  # [B,H,W] float/bool
-                 sem: Optional[torch.Tensor] = None,    # [B,H,W] float 0‑1
+                 hed: Optional[torch.Tensor] = None,  # [B,H,W] float/bool
+                 sam: Optional[torch.Tensor] = None,    # [B,H,W] float 0‑1
                  start_field: StartField = StartField.RANDOM,
                  config: FillNodeConfig = None):
 
@@ -112,7 +112,8 @@ class OrganicFillBatch:
         # Optional channels
         self.depth = depth.to(self.device) if depth is not None else None
         self.canny = canny.to(self.device) if canny is not None else None
-        self.sem   = sem.to(self.device)   if sem   is not None else None
+        self.hed   = hed.to(self.device)   if hed is not None else None
+        self.sam   = sam.to(self.device)   if sam   is not None else None
         
         # Grids
         self.grid = torch.zeros_like(self.mask)                 # fill state 0/1
@@ -141,32 +142,22 @@ class OrganicFillBatch:
         # --- Base Confidence: LAB L* gradient if no other maps ---
         # Use LAB L* gradient magnitude as the primary driver if no other guidance is given
         # Favours filling areas of low contrast first.
-        has_sem = self.sem is not None
+        has_sam   = self.sam   is not None
         has_depth = self.depth is not None
         has_canny = self.canny is not None
-        use_lab_base = not (has_sem or has_depth or has_canny)
+        has_hed   = self.hed   is not None
 
-        if use_lab_base:
-            print("No specific maps provided, using LAB L* gradient as base confidence.")
-            l_channel = _image_bhwc_to_lab_l_bhw(self.input_image) # [B,H,W]
-            l_grad_mag = _sobel_grad(l_channel)
-            # Inverse relationship: high gradient -> low confidence
-            base_confidence = torch.exp(-l_grad_mag * self.cfg.lab_gradient_scale)
-            base_confidence = normalize_tensor(base_confidence) # Ensure [0,1]
-        else:
-            # Start with neutral confidence if using specific maps
-            base_confidence = torch.ones((B, H, W), device=device)
+        l_channel = _image_bhwc_to_lab_l_bhw(self.input_image) # [B,H,W]
+        l_grad_mag = _sobel_grad(l_channel)
+        # Inverse relationship: high gradient -> low confidence
+        base_confidence = torch.exp(-l_grad_mag * self.cfg.lab_gradient_scale)
+        base_confidence = normalize_tensor(base_confidence) # Ensure [0,1]
 
-        # --- Semantic Map Contribution (if available) ---
-        P_sem = torch.ones((B, H, W), device=device)
-        if has_sem:
+        # --- semantic Map Contribution (if available) ---
+        P_sam = torch.ones((B, H, W), device=device)
+        if has_sam:
             print("Using Semantic map contribution.")
-            P_sem = normalize_tensor(self.sem) # Assume higher value means more likely to be filled
-
-        # --- Signed Distance Field Penalty (always calculated based on base_mask) ---
-        # Removed SDF Penalty: Since self.mask is always full, the SDF is always 0,
-        # and the sdf_penalty is always 1.0.
-        sdf_penalty = 1.0 # Placeholder for consistency in multiplication below
+            P_sam = normalize_tensor(self.sam) # Assume higher value means more likely to be filled
 
         # --- Depth Gradient Contribution (if available) ---
         # Penalises growing across sharp depth changes
@@ -188,15 +179,14 @@ class OrganicFillBatch:
             edge_penalty = 1.0 - c_norm # Prefer pixels *away* from strong edges
 
         # --- Combine Confidence Components ---
-        # Start with the base (either LAB-based or ones)
+        # Start with the base LAB confidence:
         confidence = base_confidence
 
         # Multiply positive/neutral factors
-        if has_sem:
-            confidence = confidence * P_sem # Favor regions indicated by SEM map
+        if has_sam:
+            confidence = confidence * P_sam # Favor regions indicated by sam map
         if has_depth:
             confidence = confidence * depth_term # Penalize high depth gradients
-        confidence = confidence * sdf_penalty # Penalize proximity to mask border (if mask isn't full)
         confidence = confidence * edge_penalty # Penalize proximity to Canny edges
 
         # Final clamp
@@ -205,38 +195,21 @@ class OrganicFillBatch:
     # ────────────────────────────────────────────────────────────────────────
     #  SEED PLACEMENT
     # ────────────────────────────────────────────────────────────────────────
-    def _place_seeds(self, start_field: StartField): # Simplified assuming full mask
+    def _place_seeds(self, start_field: StartField):
         B,H,W = self.B,self.H,self.W
-        # Since mask is full, all pixels are initially valid for region selection
 
         print(f"Placing seeds using {start_field.value} strategy within the mask...")
         for b in range(B):
-            # No need to check m.any() since mask is always full
-
             # Determine seed coordinates (y, x)
             yx = None
-            if start_field == StartField.CLOSEST_POINT and self.depth is not None:
-                depth_b = self.depth[b]
-                # Find min depth only within the valid mask region
-                depth_inside = depth_b # Since m is all True
-                max_depth_val = depth_inside.max()
 
-                if torch.isfinite(max_depth_val):
-                    yx_candidates = torch.nonzero(depth_inside == max_depth_val, as_tuple=False)
-                    if yx_candidates.numel() > 0:
-                        # Randomly pick one if multiple minima exist
-                        yx = yx_candidates[torch.randint(len(yx_candidates), (1,))]
-                # Fallback if no finite min depth found within the mask
-                if yx is None:
-                    print(f"Warning: Could not find finite minimum depth within mask for batch {b}. Falling back.")
-
-            # Fallback or standard region selection
+            # Standard region selection
             if yx is None:
                 h2, w2 = H // 2, W // 2
                 thirds_h, thirds_w = H // 3, W // 3
                 sel = torch.zeros_like(self.mask[b], dtype=torch.bool) # Selection region
 
-                if start_field == StartField.RANDOM or start_field == StartField.CLOSEST_POINT: # CLOSEST_POINT falls back to RANDOM if depth fails
+                if start_field == StartField.RANDOM:
                     sel = self.mask[b] # Select from anywhere inside mask
                 elif start_field == StartField.TOP_LEFT:      sel[:h2, :w2] = True
                 elif start_field == StartField.TOP_RIGHT:     sel[:h2, w2:] = True
@@ -341,19 +314,16 @@ class OrganicFillBatch:
         avg_fill_ratio = fill_ratio.mean().item()
         return active_count, avg_fill_ratio
 
-
     # ────────────────────────────────────────────────────────────────────────
     #  HELPERS
     # ────────────────────────────────────────────────────────────────────────
     def fill_ratio(self):
         """Calculate fill ratio per batch item (simplified for full mask)."""
-        # mask_area = self.mask.sum(dim=(1,2)) # Original
-        # filled_area = (self.grid * self.mask).sum(dim=(1,2)) # Original
         mask_area = torch.full((self.B,), self.H * self.W, device=self.device, dtype=torch.float32)
         filled_area = self.grid.sum(dim=(1,2)).float()
         # Avoid division by zero if mask area is zero for some batch items
         ratio = torch.where(mask_area > 0, filled_area / mask_area, torch.zeros_like(mask_area, device=self.device))
-        return ratio # [B]
+        return ratio
 
     def is_complete(self):
         """Check completion based on fill saturation and active pixels per batch item."""
@@ -381,10 +351,8 @@ class OrganicFillBatch:
         # The whole process is complete if *all* batch items are done
         return torch.all(is_done)
 
-
     def get_frame(self):
         return self.grid.clone()  # [B,H,W] float 0/1
-
 
 # ────────────────────────────────────────────────────────────────────────────────
 #  COMFYUI NODE DEFINITION
@@ -530,7 +498,7 @@ class OrganicFillNode:
             base_mask=base_mask,     # Pass BHW mask
             depth=depth_map_bhw,     # Pass BHW depth
             canny=canny_map_bhw,     # Pass BHW canny
-            sem=sam_prob_bhw,        # Pass BHW semantic probability
+            sam=sam_prob_bhw,        # Pass BHW samantic probability
             start_field=StartField(start_field),
             config=cfg
         )
@@ -626,6 +594,7 @@ if __name__ == "__main__":
         # --- 2. Load Optional Auxiliary Maps ---
         depth_path = test_config.get("depth")
         canny_path = test_config.get("canny")
+        hed_path = test_config.get("hed")
         sam_path = test_config.get("sam")
 
         # load_image returns HWC tensor, convert to BHWC
@@ -636,6 +605,7 @@ if __name__ == "__main__":
 
         depth_map_bhwc = _load_aux(depth_path, target_size)
         canny_map_bhwc = _load_aux(canny_path, target_size)
+        hed_map_bhwc = _load_aux(hed_path, target_size)
         sam_map_bhwc = _load_aux(sam_path, target_size) # This will be thresholded inside execute
 
         if sam_map_bhwc is not None: print(f"Loaded SAM map: {sam_map_bhwc.shape}")
@@ -657,7 +627,8 @@ if __name__ == "__main__":
             "SAM_map": sam_map_bhwc,       # BHWC float or None
             "depth_map": depth_map_bhwc,   # BHWC float or None
             "canny_map": canny_map_bhwc,   # BHWC float or None
-            "max_steps": test_config.get("max_steps", 500),
+            "hed_map": hed_map_bhwc,       # BHWC float or None
+            "max_steps": test_config.get("max_steps", 1000),
             "start_field": test_config.get("start_field", StartField.CENTER.value),
             "growth_threshold": test_config.get("growth_threshold", 0.6),
             "seed_radius": test_config.get("seed_radius", 5),
