@@ -29,7 +29,7 @@ class FillNodeConfig:
     saturation_threshold: float = 1e-5
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
     # Growth probability map weights for weighted combination
-    weight_lab: float = 0.01
+    weight_lab: float = 0.5
     weight_sam: float = 1.5
     weight_depth: float = 2.0
     weight_canny: float = 0.1
@@ -39,7 +39,7 @@ class FillNodeConfig:
     n_frames: int = 100
     processing_resolution: int = 1024
     # Additional algorithm constants
-    uniform_high_prob: float = 0.9
+    uniform_high_prob: float = 0.8
     barrier_override_scaling: float = 0.5
     overlay_alpha: float = 0.4
 
@@ -60,10 +60,10 @@ def _sobel_grad(img: torch.Tensor) -> torch.Tensor:
     mag = torch.sqrt(grad_x**2 + grad_y**2)
     return mag.squeeze(1)  # [B,H,W]
 
-def _image_bhwc_to_lab_l_bhw(img_bhwc: torch.Tensor) -> torch.Tensor:
-    """Convert RGB image tensor [B,H,W,C] (0-1 float) to LAB L* channel [B,H,W]."""
+def _image_bhwc_to_lab_bhwc(img_bhwc: torch.Tensor) -> torch.Tensor:
+    """Convert RGB image tensor [B,H,W,C] (0-1 float) to full LAB colorspace [B,H,W,3]."""
     B, H, W, C = img_bhwc.shape
-    l_channel_batch = []
+    lab_batch = []
     device = img_bhwc.device
     img_bhwc_cpu_numpy = (img_bhwc.cpu().numpy() * 255).astype(np.uint8)
 
@@ -76,10 +76,76 @@ def _image_bhwc_to_lab_l_bhw(img_bhwc: torch.Tensor) -> torch.Tensor:
              raise ValueError(f"Input image must have 1 or 3 channels, got {C}")
         
         lab_hwc = cv2.cvtColor(img_hwc, cv2.COLOR_RGB2LAB)
-        l_channel_hw = lab_hwc[..., 0] # L* channel is the first one
-        l_channel_batch.append(torch.from_numpy(l_channel_hw.astype(np.float32) / 100.0)) # L* is 0-100
+        # Normalize LAB channels: L* (0-100) -> (0-1), a* and b* (-127 to 127) -> (0-1)
+        lab_hwc_norm = lab_hwc.astype(np.float32)
+        lab_hwc_norm[..., 0] /= 100.0  # L* channel: 0-100 -> 0-1
+        lab_hwc_norm[..., 1] = (lab_hwc_norm[..., 1] + 127.0) / 254.0  # a* channel: -127 to 127 -> 0-1
+        lab_hwc_norm[..., 2] = (lab_hwc_norm[..., 2] + 127.0) / 254.0  # b* channel: -127 to 127 -> 0-1
+        
+        lab_batch.append(torch.from_numpy(lab_hwc_norm))
 
-    return torch.stack(l_channel_batch).to(device) # [B,H,W]
+    return torch.stack(lab_batch).to(device) # [B,H,W,3]
+
+def _compute_color_similarity_growth_prob(lab_bhwc: torch.Tensor, kernel_size_f: float = 0.01) -> torch.Tensor:
+    """
+    Compute growth probability based on perceptual color similarity in LAB space.
+    Areas with similar colors get high growth probability.
+    
+    Args:
+        lab_bhwc: [B,H,W,3] LAB color space image (normalized 0-1)
+        kernel_size: Size of local neighborhood for color similarity computation
+    
+    Returns:
+        color_grow_prob: [B,H,W] growth probability map (0-1)
+    """
+    B, H, W, C = lab_bhwc.shape
+    device = lab_bhwc.device
+
+    kernel_size = int(kernel_size_f * (H + W) / 2)
+    kernel_size = kernel_size if kernel_size % 2 == 1 else kernel_size + 1
+    
+    # Use adaptive weights for LAB channels based on perceptual importance
+    # L* is most perceptually important, a* and b* contribute to color similarity
+    lab_weights = torch.tensor([0.6, 0.2, 0.2], device=device).view(1, 1, 1, 3)  # [1,1,1,3]
+    
+    color_similarity_maps = []
+    
+    for b in range(B):
+        lab_hwc = lab_bhwc[b]  # [H,W,3]
+        
+        # Compute local color variance using a sliding window approach
+        # Pad the image for convolution
+        pad_size = kernel_size // 2
+        lab_padded = F.pad(lab_hwc.permute(2, 0, 1), (pad_size, pad_size, pad_size, pad_size), mode='reflect')  # [3,H+pad,W+pad]
+        
+        # Unfold to get local neighborhoods for each pixel
+        lab_unfolded = F.unfold(lab_padded.unsqueeze(0), kernel_size=kernel_size, stride=1)  # [1, 3*kernel_size^2, H*W]
+        lab_unfolded = lab_unfolded.squeeze(0).view(3, kernel_size*kernel_size, H, W)  # [3, K^2, H, W]
+        lab_unfolded = lab_unfolded.permute(2, 3, 0, 1)  # [H, W, 3, K^2]
+        
+        # Get the center pixel for each neighborhood
+        center_idx = kernel_size * kernel_size // 2
+        center_colors = lab_unfolded[..., center_idx]  # [H, W, 3]
+        
+        # Compute weighted color distances from center to all neighbors
+        center_expanded = center_colors.unsqueeze(-1)  # [H, W, 3, 1]
+        color_diffs = lab_unfolded - center_expanded  # [H, W, 3, K^2]
+        
+        # Apply perceptual weights and compute L2 distance
+        weighted_diffs = color_diffs * lab_weights.squeeze(0).squeeze(0).unsqueeze(-1)  # [H, W, 3, K^2]
+        distances = torch.sqrt(torch.sum(weighted_diffs**2, dim=2))  # [H, W, K^2]
+        
+        # Compute local color variance (lower variance = more similar colors)
+        color_variance = torch.var(distances, dim=-1)  # [H, W]
+        
+        # Convert variance to similarity (high variance = low similarity)
+        # Use exponential decay to create smooth transitions
+        color_similarity = torch.exp(-color_variance * 10.0)  # Scale factor controls sensitivity
+        
+        color_similarity_maps.append(color_similarity)
+    
+    color_grow_prob = torch.stack(color_similarity_maps)  # [B, H, W]
+    return torch.clamp(color_grow_prob, 0.0, 1.0)
 
 def _sam_rgb_to_color_transition_penalty(sam_rgb_bhwc: torch.Tensor, threshold_value: float = 0.25) -> torch.Tensor:
     """
@@ -200,11 +266,10 @@ class OrganicFillBatch:
         grow_prob_maps = []
         weights = []
 
-        # ── LAB L* Gradient Growth Probability (always available) ──
-        print("Computing LAB L* gradient growth probability...")
-        l_channel = _image_bhwc_to_lab_l_bhw(self.input_image)  # [B,H,W]
-        l_grad_mag = _sobel_grad(l_channel)
-        lab_grow_prob = 1 - l_grad_mag
+        # ── LAB Perceptual Color Similarity Growth Probability (always available) ──
+        print("Computing LAB perceptual color similarity growth probability...")
+        lab_bhwc = _image_bhwc_to_lab_bhwc(self.input_image)  # [B,H,W,3]
+        lab_grow_prob = _compute_color_similarity_growth_prob(lab_bhwc)  # [B,H,W]
         lab_grow_prob = normalize_tensor(lab_grow_prob)  # [B,H,W] 0-1
         
         if save_maps:
@@ -358,9 +423,9 @@ class OrganicFillBatch:
         # Calculate effective growth probability based on barrier jumping strength
         if self.cfg.barrier_jump_power == 0.0:
             # No barrier jumping - must respect probability map completely
-            potential_growth = potential_growth_base & (P > self.cfg.growth_threshold)
-            effective_prob = P
             relaxed_threshold = self.cfg.growth_threshold
+            potential_growth = potential_growth_base & (P > relaxed_threshold)
+            effective_prob = P
         else:
             # Allow barrier jumping with increasing strength
             # Use exponential scaling to make the effect more dramatic at higher values
@@ -369,7 +434,8 @@ class OrganicFillBatch:
             # At low jump_power: mostly use original P
             # At high jump_power: mostly use a uniform high probability
             alpha = self.cfg.barrier_jump_power
-            effective_prob = (1 - alpha) * P + alpha * self.cfg.uniform_high_prob
+            #effective_prob = (1 - alpha) * P + alpha * self.cfg.uniform_high_prob
+            effective_prob = (1 - alpha) * P + alpha * P**(1/4)
             
             # For potential growth, also relax the threshold requirement based on jump strength
             relaxed_threshold = self.cfg.growth_threshold * (1 - alpha * self.cfg.barrier_override_scaling)  # Can reduce threshold by up to barrier_override_scaling
