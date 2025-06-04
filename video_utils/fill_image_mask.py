@@ -42,6 +42,14 @@ class FillNodeConfig:
     uniform_high_prob: float = 0.8
     barrier_override_scaling: float = 0.5
     overlay_alpha: float = 0.4
+    
+    # Organic growth parameters
+    circular_bias_strength: float = 0.3  # How much to favor circular/spherical growth (0.0-1.0)
+    jitter_strength: float = 0.2  # How much random jitter to add for organic edges (0.0-1.0)
+    neighbor_sampling_min: float = 0.6  # Minimum neighbor sampling rate (0.0-1.0)
+    neighbor_sampling_max: float = 0.9  # Maximum neighbor sampling rate (0.0-1.0)
+    circular_radius_sensitivity: float = 0.3  # How sensitive circular bias is to radius deviation (0.1-1.0)
+    organic_bias_range: float = 0.3  # Range of organic bias multiplier: (1-range) to (1+range)
 
 # ────────────────────────────────────────────────────────────────────────────────
 #  UTILITY FUNCTIONS
@@ -414,51 +422,107 @@ class OrganicFillBatch:
         # 3. Have a filled neighbour (has_filled_neighbour)
         potential_growth_base = (self.filled_region == 0) & (self.mask > 0.5) & has_filled_neighbour
 
-        # --- Barrier Jumping Logic ---
-        # Convert barrier_jump_power (0-1) to effective noise parameters
-        # 0: Respect probability map completely (only grow where P > threshold)
-        # 0.5: Moderate barrier jumping ability
-        # 1.0: Almost ignore probability map (grow everywhere with high probability)
+        # ═══ ORGANIC GROWTH ENHANCEMENTS ═══
         
-        # Calculate effective growth probability based on barrier jumping strength
+        # 1. Add circular bias: compute distance from center of mass of filled region
+        if torch.sum(self.filled_region) > 0:
+            # Compute center of mass for each batch item
+            centers_of_mass = []
+            circular_bias_maps = []
+            
+            for b in range(B):
+                filled_b = self.filled_region[b]
+                if torch.sum(filled_b) > 0:
+                    # Find center of mass
+                    y_coords, x_coords = torch.where(filled_b > 0.5)
+                    center_y = torch.mean(y_coords.float())
+                    center_x = torch.mean(x_coords.float())
+                    centers_of_mass.append((center_y, center_x))
+                    
+                    # Create coordinate grids
+                    y_grid, x_grid = torch.meshgrid(torch.arange(H, device=self.device, dtype=torch.float32),
+                                                   torch.arange(W, device=self.device, dtype=torch.float32), 
+                                                   indexing='ij')
+                    
+                    # Compute distance from center of mass
+                    dist_from_center = torch.sqrt((y_grid - center_y)**2 + (x_grid - center_x)**2)
+                    
+                    # Create circular bias: prefer growth that maintains roundness
+                    # Find the current "radius" of filled region
+                    filled_dists = dist_from_center[filled_b > 0.5]
+                    if len(filled_dists) > 0:
+                        avg_radius = torch.mean(filled_dists)
+                        # Bias toward growth at similar distance from center (circular shell)
+                        radius_diff = torch.abs(dist_from_center - avg_radius)
+                        circular_bias = torch.exp(-radius_diff / (avg_radius * self.cfg.circular_radius_sensitivity))  # Prefer growth near current radius
+                    else:
+                        circular_bias = torch.ones_like(dist_from_center)
+                    
+                    circular_bias_maps.append(circular_bias)
+                else:
+                    centers_of_mass.append((H//2, W//2))  # Default center
+                    circular_bias_maps.append(torch.ones(H, W, device=self.device))
+            
+            circular_bias_batch = torch.stack(circular_bias_maps)  # [B, H, W]
+        else:
+            circular_bias_batch = torch.ones(B, H, W, device=self.device)
+
+        # 2. Add directional jitter for organic edges
+        # Create random directional noise to break up straight lines
+        directional_jitter = torch.rand(B, H, W, device=self.device)
+        
+        # Smooth the jitter to create organic blob-like patterns
+        jitter_padded = F.pad(directional_jitter.unsqueeze(1), (2,2,2,2), mode='reflect')
+        # Use a 5x5 gaussian-like smoothing kernel
+        smooth_kernel = torch.ones(1, 1, 5, 5, device=self.device) / 25.0
+        smoothed_jitter = F.conv2d(jitter_padded, smooth_kernel, padding=0).squeeze(1)
+        
+        # 3. Random neighbor sampling for organic growth
+        # Instead of growing all potential neighbors, randomly sample them
+        sampling_rate = self.cfg.neighbor_sampling_min + (self.cfg.neighbor_sampling_max - self.cfg.neighbor_sampling_min) * torch.rand(B, H, W, device=self.device)  # 60-90% sampling rate
+        neighbor_sampling_mask = torch.rand(B, H, W, device=self.device) < sampling_rate
+
+        # --- Barrier Jumping Logic (enhanced with organic factors) ---
         if self.cfg.barrier_jump_power == 0.0:
             # No barrier jumping - must respect probability map completely
             relaxed_threshold = self.cfg.growth_threshold
             potential_growth = potential_growth_base & (P > relaxed_threshold)
             effective_prob = P
         else:
-            # Allow barrier jumping with increasing strength
-            # Use exponential scaling to make the effect more dramatic at higher values
-            
-            # Mix the original probability with a barrier-override probability
-            # At low jump_power: mostly use original P
-            # At high jump_power: mostly use a uniform high probability
+            # Mix original probability with organic enhancements
             alpha = self.cfg.barrier_jump_power
-            #effective_prob = (1 - alpha) * P + alpha * self.cfg.uniform_high_prob
-            effective_prob = (1 - alpha) * P + alpha * P**(1/4)
             
-            # For potential growth, also relax the threshold requirement based on jump strength
-            relaxed_threshold = self.cfg.growth_threshold * (1 - alpha * self.cfg.barrier_override_scaling)  # Can reduce threshold by up to barrier_override_scaling
-            potential_growth = potential_growth_base & ((P > relaxed_threshold))
+            # Combine growth probability with organic factors
+            organic_boost = (circular_bias_batch * self.cfg.circular_bias_strength + smoothed_jitter * self.cfg.jitter_strength)
+            effective_prob = (1 - alpha) * P + alpha * (P**(1/4) + organic_boost * self.cfg.organic_bias_range)
+            effective_prob = torch.clamp(effective_prob, 0.0, 1.0)
+            
+            # Relax threshold with organic considerations
+            relaxed_threshold = self.cfg.growth_threshold * (1 - alpha * self.cfg.barrier_override_scaling)
+            potential_growth = potential_growth_base & (P > relaxed_threshold) & neighbor_sampling_mask
 
         # DEBUG: Track potential growth areas
         total_potential_base = torch.sum(potential_growth_base).item()
         total_potential_final = torch.sum(potential_growth).item()
         total_above_threshold = torch.sum((self.filled_region == 0) & (self.mask > 0.5) & (P > relaxed_threshold)).item()
 
-        # --- Stochastic Growth ---
+        # --- Stochastic Growth (enhanced) ---
         # Generate random noise for stochastic decision making
         noise = torch.rand_like(self.filled_region, device=self.device)
         
-        # New growth happens where potential exists AND noise < effective_probability
-        new_growth = potential_growth & (noise < effective_prob)
+        # Apply circular bias to the effective probability
+        biased_effective_prob = effective_prob * (1 - self.cfg.organic_bias_range + self.cfg.organic_bias_range * circular_bias_batch)  # Dynamic multiplier based on config
+        biased_effective_prob = torch.clamp(biased_effective_prob, 0.0, 1.0)
+        
+        # New growth happens where potential exists AND noise < biased_effective_probability
+        new_growth = potential_growth & (noise < biased_effective_prob)
         total_new_growth = torch.sum(new_growth).item()
 
         # DEBUG: Print detailed step info
         if self.frame_count % 10 == 0 or self.frame_count < 5 or total_new_growth == 0:
-            eff_prob_min, eff_prob_max, eff_prob_mean = effective_prob.min().item(), effective_prob.max().item(), effective_prob.mean().item()
+            eff_prob_min, eff_prob_max, eff_prob_mean = biased_effective_prob.min().item(), biased_effective_prob.max().item(), biased_effective_prob.mean().item()
             print(f"  Potential: base={total_potential_base}, final={total_potential_final}, above_thresh={total_above_threshold}")
-            print(f"  Effective prob: min={eff_prob_min:.4f}, max={eff_prob_max:.4f}, mean={eff_prob_mean:.4f}")
+            print(f"  Biased effective prob: min={eff_prob_min:.4f}, max={eff_prob_max:.4f}, mean={eff_prob_mean:.4f}")
             print(f"  Threshold: {relaxed_threshold:.4f}, New growth: {total_new_growth}")
             if total_new_growth == 0 and total_potential_final > 0:
                 print(f"  WARNING: No growth despite {total_potential_final} potential pixels!")
@@ -564,6 +628,9 @@ class OrganicFillNode:
                 "processing_resolution": ("INT", {"default": default_config.processing_resolution, "min": 256, "max": 4096, "step": 64}),
                 "saturation_window": ("INT", {"default": default_config.saturation_window, "min": 5, "max": 100}),
                 "saturation_threshold": ("FLOAT", {"default": default_config.saturation_threshold, "min": 1e-6, "max": 1e-4, "step": 1e-5}),
+                # Organic growth parameters
+                "circular_bias_strength": ("FLOAT", {"default": default_config.circular_bias_strength, "min": 0.0, "max": 1.0, "step": 0.01}),
+                "jitter_strength": ("FLOAT", {"default": default_config.jitter_strength, "min": 0.0, "max": 1.0, "step": 0.01}),
             }
         }
 
@@ -599,6 +666,13 @@ class OrganicFillNode:
                 processing_resolution: Optional[int] = None,
                 saturation_window: Optional[int] = None,
                 saturation_threshold: Optional[float] = None,
+                # Organic growth parameters
+                circular_bias_strength: Optional[float] = None,
+                jitter_strength: Optional[float] = None,
+                neighbor_sampling_min: Optional[float] = None,
+                neighbor_sampling_max: Optional[float] = None,
+                circular_radius_sensitivity: Optional[float] = None,
+                organic_bias_range: Optional[float] = None,
                 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]: # Return mask BHW, frames NBHWC, grow_prob BHW, overlayed_fill_preview NHWC
 
         start_time = time.time()
@@ -638,6 +712,12 @@ class OrganicFillNode:
             'seed': seed,
             'saturation_window': saturation_window,
             'saturation_threshold': saturation_threshold,
+            'circular_bias_strength': circular_bias_strength,
+            'jitter_strength': jitter_strength,
+            'neighbor_sampling_min': neighbor_sampling_min,
+            'neighbor_sampling_max': neighbor_sampling_max,
+            'circular_radius_sensitivity': circular_radius_sensitivity,
+            'organic_bias_range': organic_bias_range,
         }
         
         for key, value in param_mapping.items():
@@ -1060,6 +1140,12 @@ if __name__ == "__main__":
             # Advanced FillNodeConfig parameters
             "saturation_window": test_config.get("saturation_window", default_config.saturation_window),
             "saturation_threshold": test_config.get("saturation_threshold", default_config.saturation_threshold),
+            "circular_bias_strength": test_config.get("circular_bias_strength", default_config.circular_bias_strength),
+            "jitter_strength": test_config.get("jitter_strength", default_config.jitter_strength),
+            "neighbor_sampling_min": test_config.get("neighbor_sampling_min", default_config.neighbor_sampling_min),
+            "neighbor_sampling_max": test_config.get("neighbor_sampling_max", default_config.neighbor_sampling_max),
+            "circular_radius_sensitivity": test_config.get("circular_radius_sensitivity", default_config.circular_radius_sensitivity),
+            "organic_bias_range": test_config.get("organic_bias_range", default_config.organic_bias_range),
         }
 
         # --- 5. Run Organic Fill Node ---
