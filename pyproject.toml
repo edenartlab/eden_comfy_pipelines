@@ -4,15 +4,14 @@ description = "A collection of custom nodes and workflows for ComfyUI, developed
 version = "1.3.0"
 license = {file = "LICENSE"}
 dependencies = [
-    clip-interrogator==0.6.0
-"open_clip_torch==2.26.1",
-"openai",
-"python-dotenv",
-"scikit-learn",
-"transformers",
-"matplotlib",
-"scikit-image",
-"opencv-python"
+    "clip-interrogator==0.6.0",
+    "open_clip_torch==2.26.1",
+    "openai",
+    "python-dotenv",
+    "scikit-learn",
+    "transformers",
+    "matplotlib",
+    "scikit-image",
     "opencv-python",
     "piexif",
     "py7zr",
@@ -23,8 +22,8 @@ dependencies = [
 
 [project.urls]
 Repository = "https://github.com/edenartlab/eden_comfy_pipelines"
-#  Used by Comfy Registry https://comfyregistry.org
 
+# Used by Comfy Registry https://comfyregistry.org
 [tool.comfy]
 PublisherId = "edenartlab"
 DisplayName = "Eden Comfy Pack"
