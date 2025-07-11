@@ -34,6 +34,68 @@ def print_available_memory():
     memory = psutil.virtual_memory()
     print(f"Available memory: {memory.available / 1024 / 1024 / 1024:.2f} GB")
 
+class Eden_RGBA_to_RGB:
+    """Node that converts RGBA images to RGB by alpha blending with a background color"""
+    
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "images": ("IMAGE",),
+                "background_color": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.01}),
+            }
+        }
+
+    FUNCTION = "convert_rgba_to_rgb"
+    RETURN_TYPES = ("IMAGE",)
+    RETURN_NAMES = ("images",)
+    CATEGORY = "Eden 🌱/transform"
+
+    def convert_rgba_to_rgb(self, images, background_color=0.0):
+        """
+        Convert RGBA images to RGB by alpha blending with background color
+        
+        Args:
+            images: Input tensor [B,H,W,C] where C can be 3 or 4, values in range 0-1
+            background_color: Background color value (0-1)
+            
+        Returns:
+            RGB images tensor [B,H,W,3] with values in range 0-1
+        """
+        # Return early if tensor is empty
+        if images is None or images.numel() == 0:
+            return (images,)
+            
+        batch_size, height, width, channels = images.shape
+        
+        # Create output tensor for RGB images
+        if channels == 4:
+            result = torch.zeros(batch_size, height, width, 3, dtype=images.dtype, device=images.device)
+        else:
+            result = images.clone()
+            
+        # Process each image in the batch
+        for b in range(batch_size):
+            img = images[b]
+            
+            if channels == 4:  # Has alpha channel
+                # Extract RGB and alpha channels
+                rgb = img[:, :, :3].float()
+                alpha = img[:, :, 3].float()  # Alpha already in 0-1 range
+                
+                # Alpha blend with background color
+                # Formula: result = alpha * foreground + (1 - alpha) * background
+                background = torch.full_like(rgb, background_color)
+                blended = alpha.unsqueeze(2) * rgb + (1 - alpha.unsqueeze(2)) * background
+                
+                # Keep in 0-1 range
+                result[b] = torch.clamp(blended, 0, 1)
+            else:
+                # Already RGB or other format, keep as is
+                result[b] = img[:, :, :3] if img.shape[2] >= 3 else img
+                
+        return (result,)
+
 class Eden_Random_Flip:
     """Node that randomly flips each image or mask in a batch horizontally with a given probability"""
     

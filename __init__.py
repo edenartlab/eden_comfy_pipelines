@@ -87,7 +87,8 @@ NODE_CLASS_MAPPINGS = {
     "Eden_RandomFilepathSampler": Eden_RandomFilepathSampler,
     "Eden_AllMediaLoader": Eden_AllMediaLoader,
     "Eden_Save_Param_Dict": Eden_Save_Param_Dict,
-    "OrganicFillNode": OrganicFillNode
+    "OrganicFillNode": OrganicFillNode,
+    "Eden_RGBA_to_RGB": Eden_RGBA_to_RGB
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
