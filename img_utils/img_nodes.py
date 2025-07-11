@@ -1489,8 +1489,8 @@ class LoadRandomImage:
         }
 
     CATEGORY = "Eden 🌱/general"
-    RETURN_TYPES = ("IMAGE", any_typ, any_typ)
-    RETURN_NAMES = ("Image(s)", "paths", "filenames")
+    RETURN_TYPES = ("IMAGE", any_typ, any_typ, "STRING")
+    RETURN_NAMES = ("Image(s)", "paths", "filenames", "filenames[0]_str")
     FUNCTION = "load"
 
     def load(self, folder, n_images, seed, sort, loop_sequence):
@@ -1550,7 +1550,7 @@ class LoadRandomImage:
         else:
             output_image = torch.from_numpy(imgs[0])[None,]
 
-        return (output_image, paths, filenames,)
+        return (output_image, paths, filenames, str(filenames[0]))
 
 
 class ImageFolderIterator:
