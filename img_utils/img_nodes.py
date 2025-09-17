@@ -1517,6 +1517,8 @@ class LoadRandomImage:
             if valid_image_paths:
                 idx = seed % len(valid_image_paths)
                 valid_image_paths = [valid_image_paths[idx]]
+            else:
+                raise ValueError(f"No valid images found in folder: {folder}")
         else:
             random.seed(seed)
             random.shuffle(valid_image_paths)
@@ -1525,6 +1527,9 @@ class LoadRandomImage:
             if sort:
                 valid_image_paths = sorted(valid_image_paths)
 
+        if not valid_image_paths:
+            raise ValueError(f"No valid images found in folder: {folder}")
+            
         imgs, paths, filenames = [], [], []
         for image_path in valid_image_paths:
             try:
