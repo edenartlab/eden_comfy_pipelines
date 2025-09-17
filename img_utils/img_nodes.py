@@ -1505,27 +1505,31 @@ class LoadRandomImage:
                 valid_image_paths.append(f)
             else:
                 try:
-                    # Attempt to open the image even if imghdr fails
                     img = Image.open(f)
                     img.verify()  # Ensure it's a valid image
                     valid_image_paths.append(f)
                 except Exception as e:
                     print(f"Skipping invalid image: {f} - {str(e)}")
 
-        random.seed(seed)
-        random.shuffle(valid_image_paths)
-
-        if n_images > 0:
-            valid_image_paths = valid_image_paths[:n_images]
-
-        if sort:
+        # Special case: sort=True and n_images=1 → use seed as index
+        if sort and n_images == 1:
             valid_image_paths = sorted(valid_image_paths)
+            if valid_image_paths:
+                idx = seed % len(valid_image_paths)
+                valid_image_paths = [valid_image_paths[idx]]
+        else:
+            random.seed(seed)
+            random.shuffle(valid_image_paths)
+            if n_images > 0:
+                valid_image_paths = valid_image_paths[:n_images]
+            if sort:
+                valid_image_paths = sorted(valid_image_paths)
 
         imgs, paths, filenames = [], [], []
         for image_path in valid_image_paths:
             try:
                 img = Image.open(image_path)
-                img = ImageOps.exif_transpose(img)  # Correct orientation based on EXIF if possible
+                img = ImageOps.exif_transpose(img)
             except Exception as e:
                 print(f"Error during EXIF transpose for {image_path}: {str(e)}")
 
@@ -1539,7 +1543,7 @@ class LoadRandomImage:
             filenames.append(os.path.basename(image_path))
 
         if loop_sequence and len(imgs) > 1:
-            imgs.append(imgs[0])  # Loop back to the first image
+            imgs.append(imgs[0])
             paths.append(paths[0])
             filenames.append(filenames[0])
 
