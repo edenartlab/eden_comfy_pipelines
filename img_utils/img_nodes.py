@@ -423,37 +423,147 @@ class VAEDecode_to_folder:
 
         return (output_folder, )
 
-
-
-from sklearn.cluster import KMeans
-from .img_utils import lab_to_rgb, rgb_to_lab
-import numpy as np
-from PIL.PngImagePlugin import PngInfo
-import json
 import torch
 import torch.nn.functional as F
+import numpy as np
+import hashlib
+from functools import lru_cache
+from contextlib import nullcontext
+from .img_utils import lab_to_rgb, rgb_to_lab
+from PIL.PngImagePlugin import PngInfo
 
-def gaussian_kernel_2d(kernel_size, sigma=None):
-    """Create a 2D Gaussian kernel with proper size handling."""
-    # Ensure kernel_size is odd
+# ============================================================
+# Gaussian kernels (separable, cached)
+# ============================================================
+@lru_cache(maxsize=16)
+def gaussian_kernel_1d(kernel_size, sigma=None, device="cpu", dtype=torch.float32):
     if kernel_size % 2 == 0:
         kernel_size += 1
-        
     if sigma is None:
         sigma = 0.3 * ((kernel_size - 1) * 0.5 - 1) + 0.8
-    
-    # Create 1D kernels
-    kernel_range = torch.arange(-(kernel_size//2), kernel_size//2+1)
-    kernel_1d = torch.exp(-(kernel_range**2) / (2 * sigma**2))
-    kernel_1d = kernel_1d / kernel_1d.sum()
-    
-    # Create 2D kernel
-    kernel_2d = torch.outer(kernel_1d, kernel_1d)
-    kernel_2d = kernel_2d / kernel_2d.sum()  # Ensure normalization
-    kernel_2d = kernel_2d.view(1, 1, kernel_size, kernel_size)
-    
-    return kernel_2d
+    r = torch.arange(-(kernel_size//2), kernel_size//2 + 1, device=device, dtype=dtype)
+    k = torch.exp(-(r**2) / (2 * sigma**2))
+    k = k / k.sum()
+    return k
 
+def separable_gaussian_blur(x, kernel_size, device):
+    # x: (B,1,H,W) float
+    dtype = x.dtype
+    k1 = gaussian_kernel_1d(kernel_size, device=device, dtype=dtype)
+    kx = k1.view(1,1,1,-1)
+    ky = k1.view(1,1,-1,1)
+    pad = kernel_size // 2
+    x = F.pad(x, (pad,pad,pad,pad), mode='reflect')
+    x = F.conv2d(x, kx)
+    x = F.conv2d(x, ky)
+    return x
+
+# ---------- KMeans (CUDA-friendly) ----------
+def _seed_from_tensor(t: torch.Tensor) -> int:
+    """Content-dependent deterministic seed based on small stats of t (float32 CPU)."""
+    # t expected shape (N,3) Lab flat subset
+    with torch.no_grad():
+        m = t.mean(dim=0).float().cpu().numpy().tobytes()
+    return int.from_bytes(hashlib.blake2b(m, digest_size=8).digest(), 'little') & 0x7FFFFFFF
+
+def kmeans_torch(x, k, iters=20, tol=1e-4, seeding='kmeans++', device=None, use_amp=True, seed=None):
+    """
+    x: (N, D) float on CUDA
+    returns centers (k, D), labels (N,)
+    """
+    assert x.dim() == 2
+    N, D = x.shape
+    device = device or x.device
+    amp_ctx = torch.cuda.amp.autocast(enabled=use_amp and x.is_cuda, dtype=torch.float16) if x.is_cuda else nullcontext()
+
+    # deterministic RNG (per call)
+    if seed is None:
+        seed = 12345
+    g = torch.Generator(device=device)
+    g.manual_seed(seed)
+
+    # init
+    if seeding == 'kmeans++':
+        # first center
+        idx0 = torch.randint(0, N, (1,), device=device, generator=g)
+        centers = x[idx0]
+        for _ in range(1, k):
+            with amp_ctx:
+                # float32 for stability in distance aggregation
+                dist2 = torch.cdist(x.float(), centers.float(), p=2).pow(2)  # (N,c)
+                dmin = dist2.min(dim=1).values
+            probs = dmin / (dmin.sum() + 1e-12)
+            idx = torch.multinomial(probs, 1, generator=g)
+            centers = torch.cat([centers, x[idx]], dim=0)
+    else:
+        perm = torch.randperm(N, generator=g, device=device)[:k]
+        centers = x[perm].clone()
+
+    prev_inertia = None
+    for _ in range(iters):
+        with amp_ctx:
+            dist2 = torch.cdist(x.float(), centers.float(), p=2).pow(2)  # (N,k) in fp32 for stability
+            labels = torch.argmin(dist2, dim=1)
+            inertia = dist2.gather(1, labels.view(-1,1)).sum()
+
+        # update
+        new_centers = torch.zeros_like(centers)
+        counts = torch.bincount(labels, minlength=k).clamp_min(1).view(-1,1).to(new_centers.dtype)
+        new_centers.scatter_add_(0, labels.view(-1,1).expand(-1, D), x)
+        new_centers = new_centers / counts
+
+        if prev_inertia is not None and torch.abs(prev_inertia - inertia) < tol * (prev_inertia + 1e-12):
+            centers = new_centers
+            break
+        centers = new_centers
+        prev_inertia = inertia
+
+    return centers, labels
+
+def _deterministic_stride_indices(N, max_points, device):
+    if N <= max_points:
+        return torch.arange(N, device=device)
+    step = float(N) / float(max_points)
+    # evenly-spaced (round to nearest)
+    idx = torch.clamp(torch.round(torch.arange(0, max_points, device=device) * step).long(), max=N-1)
+    return idx.unique()
+
+def fit_kmeans_gpu(lab_flat, n_color_clusters, max_fit_points=200_000, iters=25, device=None):
+    # lab_flat: (N,3) float on CUDA
+    N = lab_flat.shape[0]
+    device = device or lab_flat.device
+    # deterministic, content-dependent subset (prevents frame-to-frame jitter)
+    idx = _deterministic_stride_indices(N, max_fit_points, device=device)
+    x_fit = lab_flat[idx]
+
+    # content-dependent seed for k-means++
+    seed = _seed_from_tensor(x_fit.detach())
+
+    centers, _ = kmeans_torch(
+        x_fit, n_color_clusters, iters=iters, device=device, use_amp=True, seed=seed
+    )
+
+    # Final assignment in **float32** for stability (no autocast)
+    dist2_full = torch.cdist(lab_flat.float(), centers.float(), p=2).pow(2)
+    labels_full = torch.argmin(dist2_full, dim=1)
+    return centers, labels_full, dist2_full  # return distances so we can build soft masks
+
+def _soft_assignments_from_dist2(dist2, tau):
+    """
+    dist2: (Npix, K) squared distances
+    tau: temperature (>= 1e-6). Lower = sharper (harder) assignments.
+    returns probs: (Npix, K), sum=1 across K
+    """
+    # use softmin over dist2/tau
+    # subtract min for numerical stability
+    m = dist2.min(dim=1, keepdim=True).values
+    logits = -(dist2 - m) / max(tau, 1e-6)
+    probs = torch.softmax(logits, dim=1)
+    return probs
+
+# ============================================================
+# ComfyUI Node
+# ============================================================
 class MaskFromRGB_KMeans:
     @classmethod
     def INPUT_TYPES(s):
@@ -464,6 +574,9 @@ class MaskFromRGB_KMeans:
                 "clustering_resolution": ("INT", {"default": 256, "min": 32, "max": 1024}),
                 "feathering_fraction": ("FLOAT", { "default": 0.05, "min": 0.0, "max": 0.5, "step": 0.01 }),
                 "equalize_areas": ("FLOAT", { "default": 0.0, "min": 0.0, "max": 1.0, "step": 0.01 }),
+                # New: stability controls
+                "soft_labels_tau": ("FLOAT", { "default": 0.35, "min": 0.0, "max": 2.0, "step": 0.01 }),  # 0.0 = hard labels
+                "min_confidence": ("FLOAT", { "default": 0.0, "min": 0.0, "max": 1.0, "step": 0.01 }),     # 0 => no binarization gate
             }
         }
 
@@ -473,251 +586,117 @@ class MaskFromRGB_KMeans:
     CATEGORY = "Eden 🌱"
 
     @torch.no_grad()
-    def execute(self, image, n_color_clusters, clustering_resolution, feathering_fraction, equalize_areas):
-        # Get appropriate device
+    def execute(self, image, n_color_clusters, clustering_resolution, feathering_fraction, equalize_areas, soft_labels_tau, min_confidence):
+        # pick device
         if torch.cuda.is_available():
             device = torch.device('cuda')
         elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
-            print("--- Warning: Using MPS backend, ensure your PyTorch version supports it.")
+            print("--- Warning: Using MPS backend")
             device = torch.device('mps')
         else:
-            print("--- Warning: No GPU available for running MaskfromRGB_Kmeans, using CPU...")
+            print("--- Warning: Using CPU")
             device = torch.device('cpu')
-            
-        # Store original device
+
         original_device = image.device
-        
-        # Move image to the appropriate device
         image = image.to(device)
-        
-        # Convert to LAB color space
-        lab_images = torch.stack([rgb_to_lab(img) for img in image])
-        n, h, w, _ = lab_images.shape
 
-        # Bring channel dim to second position
-        lab_images = lab_images.permute(0, 3, 1, 2)
+        # convert to LAB, keep channels-first
+        lab_images = torch.stack([rgb_to_lab(img) for img in image])  # (N,H,W,3)
+        lab_images = lab_images.permute(0,3,1,2)                      # (N,3,H,W)
 
-        # Maintain aspect ratio
-        h_target, w_target = clustering_resolution, int(clustering_resolution * w / h)
+        # resize to clustering_resolution
+        n, c, h, w = lab_images.shape
+        h_target = int(clustering_resolution)
+        w_target = int(round(clustering_resolution * w / h))
         lab_images = F.interpolate(lab_images, size=[h_target, w_target], mode='bicubic', align_corners=False)
-        
-        # Bring channel dim back to last position
-        lab_images = lab_images.permute(0, 2, 3, 1)
 
-        # Reshape images for k-means clustering
-        n, h, w, _ = lab_images.shape
-        lab_images_reshaped = lab_images.view(n*w*h, 3)
+        # flatten across batch (stable centers across all frames in this batch)
+        n, c, h, w = lab_images.shape
+        lab_flat = lab_images.permute(0,2,3,1).reshape(-1, 3).contiguous()
 
-        # Move to CPU for KMeans (sklearn doesn't support GPU)
-        lab_images_cpu = lab_images_reshaped.cpu().numpy()
-        
-        # Apply KMeans clustering
-        kmeans = KMeans(n_clusters=n_color_clusters, random_state=42)
-        cluster_labels = kmeans.fit_predict(lab_images_cpu)
-        
-        # Calculate average luminance for each cluster
-        cluster_centers = kmeans.cluster_centers_
-        cluster_luminance = cluster_centers[:, 0]  # L channel in LAB color space
-        
-        # Sort cluster indices based on luminance
-        sorted_indices = np.argsort(cluster_luminance)
-        index_map = {old: new for new, old in enumerate(sorted_indices)}
-        
-        # Map the cluster labels to new sorted indices
-        sorted_cluster_labels = np.vectorize(index_map.get)(cluster_labels)
-        cluster_labels = torch.from_numpy(sorted_cluster_labels).to(device).view(n, h, w)
-        
-        # Apply area equalization if requested
+        # KMeans (deterministic sampling & seeding); distances in fp32
+        centers, cluster_labels_flat, dist2_full = fit_kmeans_gpu(lab_flat, n_color_clusters, device=device)
+
+        # luminance ordering (stable label remap)
+        cluster_luminance = centers[:, 0]
+        sorted_indices = torch.argsort(cluster_luminance)
+        index_map = torch.empty_like(sorted_indices)
+        index_map[sorted_indices] = torch.arange(n_color_clusters, device=device)
+        cluster_labels_flat = index_map[cluster_labels_flat]
+
+        # shape labels & distances back
+        cluster_labels = cluster_labels_flat.view(n, h, w)
+        dist2_full = dist2_full[:, sorted_indices]  # keep distances aligned with sorted label order
+        dist2_full = dist2_full.view(n, h, w, n_color_clusters).reshape(-1, n_color_clusters)  # (N*h*w, K)
+
+        # optional equalize (kept off by default)
         if equalize_areas > 0:
-            # Count the frequency of each cluster (across all frames)
-            cluster_counts = torch.zeros(n_color_clusters, device=device)
-            for i in range(n_color_clusters):
-                cluster_counts[i] = (cluster_labels == i).sum().float()
-            
-            # Calculate the average target count if clusters were equal
-            avg_count = cluster_counts.sum() / n_color_clusters
-            
-            # Calculate the percentile threshold for each cluster based on counts
-            thresholds = []
-            
-            # Convert to numpy for easier processing
-            cluster_labels_cpu = cluster_labels.cpu().numpy()
-            
-            # Create a flattened view for convenient processing
-            flat_labels = cluster_labels_cpu.reshape(-1)
-            
-            # Process each cluster
-            for i in range(n_color_clusters):
-                # Get the flattened LAB values for this cluster
-                mask = flat_labels == i
-                cluster_size = mask.sum()
-                
-                if cluster_size == 0:
-                    # Skip empty clusters
-                    thresholds.append(None)
-                    continue
-                
-                cluster_lab_values = lab_images_cpu[mask]
-                
-                # Calculate distances to the cluster center
-                distances = np.linalg.norm(cluster_lab_values - cluster_centers[sorted_indices[i]], axis=1)
-                
-                # Sort distances
-                sorted_distances = np.sort(distances)
-                
-                # Calculate the current to target ratio
-                current_size = cluster_counts[i].item()
-                ratio = current_size / avg_count.item()
-                
-                # Apply the equalize_areas weight
-                weighted_ratio = 1.0 + (ratio - 1.0) * equalize_areas
-                
-                # Calculate the target size after weighting
-                target_size = current_size / weighted_ratio
-                
-                # If target size is smaller, we need a threshold to cut off the furthest points
-                if target_size < current_size:
-                    percentile = (target_size / current_size) * 100
-                    threshold_idx = min(len(sorted_distances) - 1, int(percentile * len(sorted_distances) / 100))
-                    thresholds.append(sorted_distances[threshold_idx])
-                else:
-                    # No threshold needed if we're expanding
-                    thresholds.append(None)
-            
-            # Create a new tensor for the adjusted labels
-            adjusted_labels = cluster_labels.clone()
-            
-            # Process each cluster
-            for i in range(n_color_clusters):
-                if thresholds[i] is not None:
-                    # Get the LAB values for this cluster
-                    cluster_mask = (cluster_labels == i)
-                    
-                    if not cluster_mask.any():
-                        continue
-                    
-                    # Calculate distances for all pixels in this cluster
-                    cluster_data = lab_images.view(-1, 3)[cluster_mask.view(-1)]
-                    cluster_center = torch.tensor(cluster_centers[sorted_indices[i]], device=device)
-                    
-                    # Calculate squared distances to the cluster center
-                    distances = torch.sum((cluster_data - cluster_center)**2, dim=1)
-                    
-                    # Create a mask for points to reassign
-                    reassign_mask = distances > thresholds[i]**2
-                    
-                    if reassign_mask.any():
-                        # Find the indices in the original tensor
-                        indices = torch.nonzero(cluster_mask.view(-1), as_tuple=True)[0][reassign_mask]
-                        
-                        # For these points, find the next closest cluster
-                        points_to_reassign = lab_images.view(-1, 3)[indices]
-                        
-                        # Calculate distances to all cluster centers
-                        all_distances = torch.zeros((len(points_to_reassign), n_color_clusters), device=device)
-                        
-                        for j in range(n_color_clusters):
-                            if j == i:
-                                # Set distance to current cluster as infinity to force reassignment
-                                all_distances[:, j] = float('inf')
-                            else:
-                                center = torch.tensor(cluster_centers[sorted_indices[j]], device=device)
-                                all_distances[:, j] = torch.sum((points_to_reassign - center)**2, dim=1)
-                        
-                        # Find the closest cluster for each point
-                        new_clusters = torch.argmin(all_distances, dim=1)
-                        
-                        # Update the adjusted labels
-                        flat_adjusted = adjusted_labels.view(-1)
-                        flat_adjusted[indices] = new_clusters
-            
-            # Replace the original labels with the adjusted ones
-            cluster_labels = adjusted_labels
-        
-        # Transform the cluster_labels into masks
-        masks = torch.zeros(n, 8, h, w, device=device)
+            # NOTE: equalize_areas_fast expects flat Lab & flat labels; we keep centers stable
+            flat_eq = equalize_areas_fast(
+                lab_flat, cluster_labels.view(-1), centers[sorted_indices], strength=float(equalize_areas)
+            )
+            cluster_labels = flat_eq.view(n, h, w)
 
-        for i in range(n):
-            for j in range(min(n_color_clusters, 8)):
-                masks[i, j] = (cluster_labels[i] == j).float()
+        # ---------- Build soft or confidence-gated masks ----------
+        if soft_labels_tau > 0.0:
+            probs_flat = _soft_assignments_from_dist2(dist2_full, tau=float(soft_labels_tau))  # (N*h*w,K)
+            probs = probs_flat.view(n, h, w, n_color_clusters).permute(0,3,1,2)  # (N,K,H,W)
+            masks = probs
+            # Optional confidence gate to push near-binary only where margin is large
+            if min_confidence > 0.0:
+                # confidence = softmax margin between top1 and top2
+                top2 = torch.topk(probs_flat, k=2, dim=1).values
+                margin = (top2[:,0] - top2[:,1]).view(n, h, w, 1)  # (N,H,W,1)
+                confident = (margin >= float(min_confidence)).float()
+                hard = F.one_hot(cluster_labels, num_classes=n_color_clusters).permute(0,3,1,2).float()  # (N,K,H,W)
+                masks = confident.permute(0,3,1,2) * hard + (1.0 - confident.permute(0,3,1,2)) * masks
+        else:
+            # Old hard labeling path (kept for compatibility)
+            labels_exp = cluster_labels.unsqueeze(1)  # (N,1,H,W)
+            choices = torch.arange(n_color_clusters, device=device).view(1, n_color_clusters, 1, 1)
+            masks = (labels_exp == choices).float()
 
-        # Create the combined mask
-        combined_mask = torch.zeros(n, h, w, device=device)
-        for i in range(n):
-            for j in range(n_color_clusters):
-                # Map each cluster to a shade of gray (0 to 1)
-                if j < n_color_clusters:
-                    gray_value = j / (n_color_clusters - 1) if n_color_clusters > 1 else 0
-                    combined_mask[i] += (cluster_labels[i] == j).float() * gray_value
+        # Keep only up to 8 channels in outputs
+        K = min(n_color_clusters, 8)
+        masks = masks[:, :K, :, :]
 
+        # combined mask grayscale (unchanged)
+        if n_color_clusters > 1:
+            combined_mask = (cluster_labels.float() / (n_color_clusters - 1)).clamp(0,1)
+        else:
+            combined_mask = torch.zeros_like(cluster_labels, dtype=torch.float)
+
+        # feather
         if feathering_fraction > 0:
-            n_imgs, n_colors, h, w = masks.shape
-            batch_size = n_imgs * n_colors
-            masks = masks.view(batch_size, h, w)
+            feather = int(feathering_fraction * (w + h) / 2.0)
+            # ensure odd and at least 3
+            if feather < 3: feather = 3
+            if feather % 2 == 0: feather += 1
+            masks_b = masks.reshape(-1,1,h,w)
+            masks_b = separable_gaussian_blur(masks_b, feather, device)
+            masks = masks_b.view(n, K, h, w)
+            cmb_b = combined_mask.unsqueeze(1)
+            cmb_b = separable_gaussian_blur(cmb_b, feather, device)
+            combined_mask = cmb_b.squeeze(1)
 
-            # Calculate feathering size
-            feathering = int(feathering_fraction * (w+h)/2)
-            
-            # Ensure kernel size is appropriate (odd and not too large)
-            feathering = max(3, feathering)
-            if feathering % 2 == 0:
-                feathering += 1
-                
-            print(f"Using feathering kernel size: {feathering}")
-            
-            # Create the kernel on the appropriate device
-            kernel = gaussian_kernel_2d(feathering).to(device)
-            
-            # Calculate padding size
-            pad_size = feathering // 2
-            
-            print("Feathering masks...")
-            # Apply convolution for feathering
-            masks_feathered = torch.zeros_like(masks)
-            
-            for i in range(masks.shape[0]):
-                mask_padded = masks[i].unsqueeze(0).unsqueeze(0)  # Add batch and channel dimensions
-                
-                # Apply reflection padding
-                mask_padded = F.pad(mask_padded, (pad_size, pad_size, pad_size, pad_size), mode='reflect')
-                
-                # Apply convolution
-                mask_feathered = F.conv2d(mask_padded, kernel, padding=0)
-                
-                # Store the result
-                masks_feathered[i] = mask_feathered.squeeze()
-            
-            masks = masks_feathered.view(n_imgs, n_colors, h, w)
-            
-            # Also feather the combined mask
-            combined_mask_padded = combined_mask.unsqueeze(1)  # Add channel dimension
-            combined_mask_batch = combined_mask_padded.view(n, 1, h, w)
-            
-            combined_mask_feathered = torch.zeros_like(combined_mask_batch)
-            
-            for i in range(combined_mask_batch.shape[0]):
-                mask_padded = combined_mask_batch[i].unsqueeze(0)  # Add batch dimension
-                
-                # Apply reflection padding
-                mask_padded = F.pad(mask_padded, (pad_size, pad_size, pad_size, pad_size), mode='reflect')
-                
-                # Apply convolution
-                mask_feathered = F.conv2d(mask_padded, kernel, padding=0)
-                
-                # Store the result
-                combined_mask_feathered[i] = mask_feathered.squeeze()
-            
-            combined_mask = combined_mask_feathered.squeeze(1)
+        # upscale back to original
+        H0, W0 = image.shape[1], image.shape[2]
+        masks = F.interpolate(masks, size=(H0,W0), mode='bicubic', align_corners=False)
+        combined_mask = F.interpolate(combined_mask.unsqueeze(1), size=(H0,W0), mode='bicubic', align_corners=False).squeeze(1)
 
-        # Upscale masks to original resolution
-        masks = F.interpolate(masks, size=(image.shape[1], image.shape[2]), mode='bicubic', align_corners=False)
-        combined_mask = F.interpolate(combined_mask.unsqueeze(1), size=(image.shape[1], image.shape[2]), mode='bicubic', align_corners=False).squeeze(1)
-        
-        # Move masks back to the original device
-        masks = masks.to(original_device)
-        combined_mask = combined_mask.to(original_device)
+        # back to original device
+        masks = masks.to(original_device, non_blocking=True)
+        combined_mask = combined_mask.to(original_device, non_blocking=True)
 
-        return masks[:, 0], masks[:, 1], masks[:, 2], masks[:, 3], masks[:, 4], masks[:, 5], masks[:, 6], masks[:, 7], combined_mask
+        # Ensure 8 outputs
+        N, Kcur, H, W = masks.shape
+        if Kcur < 8:
+            pad = torch.zeros((N, 8-Kcur, H, W), device=masks.device, dtype=masks.dtype)
+            masks = torch.cat([masks, pad], dim=1)
+
+        return masks[:,0], masks[:,1], masks[:,2], masks[:,3], masks[:,4], masks[:,5], masks[:,6], masks[:,7], combined_mask
+
+
 
 
 class Eden_MaskCombiner:
