@@ -245,6 +245,23 @@ class MaskFromRGB_KMeans:
 
                 cluster_labels[frame_idx] = remapped_labels
 
+                # CRITICAL FIX: Also remap the distances for this frame to maintain alignment
+                # Extract distances for current frame
+                frame_start = frame_idx * h * w
+                frame_end = (frame_idx + 1) * h * w
+                frame_dist2 = dist2_full[frame_start:frame_end, :]  # (h*w, K)
+
+                # Reorder distance columns to match the remapped cluster indices
+                # curr_to_prev[j] tells us that current cluster j should become prev cluster curr_to_prev[j]
+                # So we need to put column j into position curr_to_prev[j]
+                remapped_dist2 = torch.zeros_like(frame_dist2)
+                for curr_idx in range(n_color_clusters):
+                    prev_idx = curr_to_prev[curr_idx]
+                    remapped_dist2[:, prev_idx] = frame_dist2[:, curr_idx]
+
+                # Write back the remapped distances
+                dist2_full[frame_start:frame_end, :] = remapped_dist2
+
         # optional equalize (kept off by default)
         if equalize_areas > 0:
             print("equalize_areas is not implemented yet!!")
