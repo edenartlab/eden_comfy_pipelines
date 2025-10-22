@@ -31,6 +31,19 @@ def separable_gaussian_blur(x, kernel_size, device):
     x = F.conv2d(x, ky)
     return x
 
+def _lab_sort_indices(centers_lab: torch.Tensor) -> torch.Tensor:
+    """
+    Deterministic lexicographic sort by (L, a, b) to avoid ties that reshuffle channels.
+    centers_lab: (K,3) in Lab
+    """
+    L = centers_lab[:, 0]
+    a = centers_lab[:, 1]
+    b = centers_lab[:, 2]
+    # Compose a single key with enough dynamic range to preserve lexicographic order
+    key = L * 1e6 + a * 1e3 + b
+    return torch.argsort(key)
+
+
 # ---------- KMeans (CUDA-friendly) ----------
 def _seed_from_tensor(t: torch.Tensor) -> int:
     """Content-dependent deterministic seed based on small stats of t (float32 CPU)."""
@@ -150,6 +163,7 @@ class MaskFromRGB_KMeans:
                 # New: stability controls
                 "soft_labels_tau": ("FLOAT", { "default": 0.35, "min": 0.0, "max": 2.0, "step": 0.01 }),  # 0.0 = hard labels
                 "min_confidence": ("FLOAT", { "default": 0.0, "min": 0.0, "max": 1.0, "step": 0.01 }),     # 0 => no binarization gate
+                "temporal_ema": ("FLOAT", { "default": 0.2, "min": 0.0, "max": 0.9, "step": 0.01 }),       # 0 = no smoothing, higher = more smoothing
             }
         }
 
@@ -159,7 +173,7 @@ class MaskFromRGB_KMeans:
     CATEGORY = "Eden 🌱"
 
     @torch.no_grad()
-    def execute(self, image, n_color_clusters, clustering_resolution, feathering_fraction, equalize_areas, soft_labels_tau, min_confidence):
+    def execute(self, image, n_color_clusters, clustering_resolution, feathering_fraction, equalize_areas, soft_labels_tau, min_confidence, temporal_ema):
         # pick device
         if torch.cuda.is_available():
             device = torch.device('cuda')
@@ -190,9 +204,8 @@ class MaskFromRGB_KMeans:
         # KMeans (deterministic sampling & seeding); distances in fp32
         centers, cluster_labels_flat, dist2_full = fit_kmeans_gpu(lab_flat, n_color_clusters, device=device)
 
-        # luminance ordering (stable label remap)
-        cluster_luminance = centers[:, 0]
-        sorted_indices = torch.argsort(cluster_luminance)
+        # Deterministic lexicographic sort by (L, a, b) to avoid luminance-tie shuffles
+        sorted_indices = _lab_sort_indices(centers)
         index_map = torch.empty_like(sorted_indices)
         index_map[sorted_indices] = torch.arange(n_color_clusters, device=device)
         cluster_labels_flat = index_map[cluster_labels_flat]
@@ -203,63 +216,159 @@ class MaskFromRGB_KMeans:
         dist2_full = dist2_full.view(n, h, w, n_color_clusters).reshape(-1, n_color_clusters)  # (N*h*w, K)
 
         # ========== TEMPORAL CONSISTENCY: Match clusters across frames ==========
-        # For each frame after the first, reorder cluster indices to match previous frame
-        # based on spatial overlap (which cluster has most pixels in common)
+        # Build a robust, bijective permutation per frame that maps current clusters to previous.
+        # This ensures stable channel semantics over time and prevents glitchy artifacts.
         if n > 1:
-            for frame_idx in range(1, n):
-                prev_labels = cluster_labels[frame_idx - 1]  # (h, w)
-                curr_labels = cluster_labels[frame_idx]      # (h, w)
+            def _build_bijective_permutation(prev_labels, curr_labels, prev_centers, curr_centers, K, device, lambda_de=0.05):
+                """
+                Build a permutation P where P[curr_idx] = prev_idx.
+                Uses a hybrid score: overlap - lambda * deltaE(Lab centers).
+                Guarantees: bijective (no -1, no duplicates), deterministic.
 
-                # Compute overlap matrix: overlap[i,j] = # pixels where prev==i and curr==j
-                overlap = torch.zeros((n_color_clusters, n_color_clusters), device=device)
-                for i in range(n_color_clusters):
-                    for j in range(n_color_clusters):
-                        overlap[i, j] = ((prev_labels == i) & (curr_labels == j)).sum()
+                Args:
+                    prev_labels: (H,W) previous frame labels
+                    curr_labels: (H,W) current frame labels
+                    prev_centers: (K,3) Lab centers from previous frame
+                    curr_centers: (K,3) Lab centers from current frame
+                    K: number of clusters
+                    device: torch device
+                    lambda_de: weight for deltaE penalty (higher = more color-continuity bias)
+                """
+                # Compute overlap matrix: overlap[i,j] = # pixels where prev==i AND curr==j
+                overlap = torch.zeros((K, K), device=device, dtype=torch.int64)
+                for i in range(K):
+                    prev_mask = (prev_labels == i)
+                    if prev_mask.any():
+                        for j in range(K):
+                            overlap[i, j] = (prev_mask & (curr_labels == j)).sum()
 
-                # Hungarian matching: for each prev cluster i, find best matching curr cluster
-                # Greedy approach: repeatedly pick the highest overlap pair
-                curr_to_prev = torch.full((n_color_clusters,), -1, dtype=torch.long, device=device)
-                used_prev = torch.zeros(n_color_clusters, dtype=torch.bool, device=device)
-                used_curr = torch.zeros(n_color_clusters, dtype=torch.bool, device=device)
+                # Normalize overlap to [0,1] by total pixels
+                total_pixels = prev_labels.numel()
+                overlap_norm = overlap.float() / max(total_pixels, 1.0)
 
-                for _ in range(n_color_clusters):
-                    # Mask out already-used indices
-                    masked_overlap = overlap.clone()
-                    masked_overlap[used_prev, :] = -1
-                    masked_overlap[:, used_curr] = -1
+                # Compute deltaE matrix: de[i,j] = deltaE(prev_center_i, curr_center_j)
+                # Using Euclidean distance in Lab space as a deltaE proxy
+                de = torch.cdist(prev_centers.float(), curr_centers.float(), p=2)  # (K,K)
 
-                    # Find best match
-                    flat_idx = masked_overlap.argmax()
-                    i = flat_idx // n_color_clusters
-                    j = flat_idx % n_color_clusters
+                # Normalize deltaE to roughly [0,1] range (Lab deltaE typically < 100, but can be larger)
+                de_norm = de / 100.0
 
-                    curr_to_prev[j] = i
+                # Hybrid score: higher is better
+                # score[i,j] = overlap_norm[i,j] - lambda_de * de_norm[i,j]
+                score = overlap_norm - lambda_de * de_norm
+
+                # Greedy matching with deterministic tie-breaks
+                perm = torch.full((K,), -1, dtype=torch.long, device=device)
+                used_prev = torch.zeros(K, dtype=torch.bool, device=device)
+                used_curr = torch.zeros(K, dtype=torch.bool, device=device)
+                work = score.clone()
+
+                # Match pairs with highest score first
+                for _ in range(K):
+                    # Mask already-used indices with large negative value
+                    work[used_prev, :] = -1e9
+                    work[:, used_curr] = -1e9
+
+                    # Find best remaining match
+                    # Deterministic tie-break: use argmax (takes first occurrence)
+                    flat_idx = work.argmax()
+                    i = (flat_idx // K).item()
+                    j = (flat_idx % K).item()
+
+                    # Stop if score is too negative (no good matches left)
+                    if work[i, j] < -1e8:
+                        break
+
+                    # Safety: skip if already used (shouldn't happen, but be defensive)
+                    if used_prev[i] or used_curr[j]:
+                        work[i, j] = -1e9
+                        continue
+
+                    # Assign mapping
+                    perm[j] = i
                     used_prev[i] = True
                     used_curr[j] = True
 
-                # Remap current frame's labels to match previous frame's indices
-                remapped_labels = torch.zeros_like(curr_labels)
-                for curr_idx in range(n_color_clusters):
-                    prev_idx = curr_to_prev[curr_idx]
-                    remapped_labels[curr_labels == curr_idx] = prev_idx
+                # Fill any remaining unmapped indices (ensures bijection)
+                if (perm == -1).any():
+                    remaining_curr = torch.where(perm == -1)[0]
+                    remaining_prev = torch.where(~used_prev)[0]
 
+                    # Map remaining by best available score
+                    for j in remaining_curr.tolist():
+                        if remaining_prev.numel() == 0:
+                            break
+                        # Pick prev with max score for this curr (deterministic via argmax)
+                        best_idx_in_remaining = score[remaining_prev, j].argmax()
+                        best_idx = remaining_prev[best_idx_in_remaining].item()
+                        perm[j] = best_idx
+                        # Remove from remaining
+                        remaining_prev = remaining_prev[remaining_prev != best_idx]
+
+                    # Final fallback: identity mapping for any still unassigned
+                    if (perm == -1).any():
+                        for j in torch.where(perm == -1)[0].tolist():
+                            # Find any unused prev index (deterministic order)
+                            unused = torch.where(~torch.isin(torch.arange(K, device=device), perm))[0]
+                            perm[j] = unused[0].item() if unused.numel() > 0 else j
+
+                # Sanity check: ensure valid permutation (no -1, no duplicates)
+                assert (perm >= 0).all() and (perm < K).all(), "Invalid permutation indices"
+                assert perm.unique().numel() == K, "Permutation has duplicates"
+
+                return perm
+
+            # We need to track the sorted Lab centers per frame for temporal matching
+            # First, compute the sorted centers (after the initial Lab sort)
+            sorted_centers = centers[sorted_indices]  # (K,3) in Lab, now in sorted order
+
+            # Store centers per frame (we'll recompute them per frame from labels)
+            frame_centers = []
+            for frame_idx in range(n):
+                frame_start = frame_idx * h * w
+                frame_end = (frame_idx + 1) * h * w
+                frame_lab = lab_flat[frame_start:frame_end]  # (h*w, 3)
+                frame_lbl = cluster_labels[frame_idx].view(-1)  # (h*w,)
+
+                # Recompute centers for this frame
+                curr_centers = torch.zeros((n_color_clusters, 3), device=device, dtype=frame_lab.dtype)
+                for k in range(n_color_clusters):
+                    mask = (frame_lbl == k)
+                    if mask.any():
+                        curr_centers[k] = frame_lab[mask].mean(dim=0)
+                    else:
+                        # Fallback to sorted center if no pixels
+                        curr_centers[k] = sorted_centers[k]
+                frame_centers.append(curr_centers)
+
+            # Apply temporal matching frame by frame
+            for frame_idx in range(1, n):
+                prev_labels = cluster_labels[frame_idx - 1]
+                curr_labels = cluster_labels[frame_idx]
+                prev_centers = frame_centers[frame_idx - 1]
+                curr_centers = frame_centers[frame_idx]
+
+                # Build permutation: perm[curr_idx] = prev_idx
+                perm = _build_bijective_permutation(
+                    prev_labels, curr_labels, prev_centers, curr_centers,
+                    n_color_clusters, device, lambda_de=0.05
+                )
+
+                # Remap labels: pixels labeled curr_idx become prev_idx
+                remapped_labels = perm[curr_labels]
                 cluster_labels[frame_idx] = remapped_labels
 
-                # CRITICAL FIX: Also remap the distances for this frame to maintain alignment
-                # Extract distances for current frame
+                # Update frame_centers to reflect the remapping
+                frame_centers[frame_idx] = curr_centers[perm]
+
+                # Remap distance columns to maintain alignment with labels
                 frame_start = frame_idx * h * w
                 frame_end = (frame_idx + 1) * h * w
                 frame_dist2 = dist2_full[frame_start:frame_end, :]  # (h*w, K)
 
-                # Reorder distance columns to match the remapped cluster indices
-                # curr_to_prev[j] tells us that current cluster j should become prev cluster curr_to_prev[j]
-                # So we need to put column j into position curr_to_prev[j]
-                remapped_dist2 = torch.zeros_like(frame_dist2)
-                for curr_idx in range(n_color_clusters):
-                    prev_idx = curr_to_prev[curr_idx]
-                    remapped_dist2[:, prev_idx] = frame_dist2[:, curr_idx]
-
-                # Write back the remapped distances
+                # Vectorized column reordering: column curr_idx goes to position perm[curr_idx]
+                remapped_dist2 = torch.empty_like(frame_dist2)
+                remapped_dist2[:, perm] = frame_dist2
                 dist2_full[frame_start:frame_end, :] = remapped_dist2
 
         # optional equalize (kept off by default)
@@ -299,23 +408,32 @@ class MaskFromRGB_KMeans:
         else:
             combined_mask = torch.zeros_like(cluster_labels, dtype=torch.float)
 
-        # feather
+        # upscale back to original BEFORE feathering (so feathering is resolution-independent)
+        H0, W0 = image.shape[1], image.shape[2]
+        masks = F.interpolate(masks, size=(H0,W0), mode='bicubic', align_corners=False)
+        combined_mask = F.interpolate(combined_mask.unsqueeze(1), size=(H0,W0), mode='bicubic', align_corners=False).squeeze(1)
+
+        # feather at full resolution, with kernel size derived from feather_frac * max(H0, W0)
         if feathering_fraction > 0:
-            feather = int(feathering_fraction * (w + h) / 2.0)
+            feather = int(feathering_fraction * max(H0, W0))
             # ensure odd and at least 3
             if feather < 3: feather = 3
             if feather % 2 == 0: feather += 1
-            masks_b = masks.reshape(-1,1,h,w)
+            masks_b = masks.reshape(-1,1,H0,W0)
             masks_b = separable_gaussian_blur(masks_b, feather, device)
-            masks = masks_b.view(n, K, h, w)
+            masks = masks_b.view(n, K, H0, W0)
             cmb_b = combined_mask.unsqueeze(1)
             cmb_b = separable_gaussian_blur(cmb_b, feather, device)
             combined_mask = cmb_b.squeeze(1)
 
-        # upscale back to original
-        H0, W0 = image.shape[1], image.shape[2]
-        masks = F.interpolate(masks, size=(H0,W0), mode='bicubic', align_corners=False)
-        combined_mask = F.interpolate(combined_mask.unsqueeze(1), size=(H0,W0), mode='bicubic', align_corners=False).squeeze(1)
+        # Optional temporal EMA on aligned masks to suppress one-frame twitches
+        # Applied after alignment and feathering
+        if temporal_ema > 0.0 and n > 1:
+            alpha = float(temporal_ema)
+            # Apply EMA: mask[t] = alpha * mask[t-1] + (1 - alpha) * mask[t]
+            for frame_idx in range(1, n):
+                masks[frame_idx] = alpha * masks[frame_idx - 1] + (1.0 - alpha) * masks[frame_idx]
+                combined_mask[frame_idx] = alpha * combined_mask[frame_idx - 1] + (1.0 - alpha) * combined_mask[frame_idx]
 
         # back to original device
         masks = masks.to(original_device, non_blocking=True)
