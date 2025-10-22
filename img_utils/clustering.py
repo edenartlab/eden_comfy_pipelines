@@ -408,32 +408,32 @@ class MaskFromRGB_KMeans:
         else:
             combined_mask = torch.zeros_like(cluster_labels, dtype=torch.float)
 
-        # upscale back to original BEFORE feathering (so feathering is resolution-independent)
-        H0, W0 = image.shape[1], image.shape[2]
-        masks = F.interpolate(masks, size=(H0,W0), mode='bicubic', align_corners=False)
-        combined_mask = F.interpolate(combined_mask.unsqueeze(1), size=(H0,W0), mode='bicubic', align_corners=False).squeeze(1)
-
-        # feather at full resolution, with kernel size derived from feather_frac * max(H0, W0)
+        # feather at downscaled resolution (h, w) before upscaling
         if feathering_fraction > 0:
-            feather = int(feathering_fraction * max(H0, W0))
+            feather = int(feathering_fraction * (w + h) / 2.0)
             # ensure odd and at least 3
             if feather < 3: feather = 3
             if feather % 2 == 0: feather += 1
-            masks_b = masks.reshape(-1,1,H0,W0)
+            masks_b = masks.reshape(-1,1,h,w)
             masks_b = separable_gaussian_blur(masks_b, feather, device)
-            masks = masks_b.view(n, K, H0, W0)
+            masks = masks_b.view(n, K, h, w)
             cmb_b = combined_mask.unsqueeze(1)
             cmb_b = separable_gaussian_blur(cmb_b, feather, device)
             combined_mask = cmb_b.squeeze(1)
 
+        # upscale back to original resolution
+        H0, W0 = image.shape[1], image.shape[2]
+        masks = F.interpolate(masks, size=(H0,W0), mode='bicubic', align_corners=False)
+        combined_mask = F.interpolate(combined_mask.unsqueeze(1), size=(H0,W0), mode='bicubic', align_corners=False).squeeze(1)
+
         # Optional temporal EMA on aligned masks to suppress one-frame twitches
         # Applied after alignment and feathering
+        # Note: Only applied to individual masks, not combined_mask (to preserve crisp combined output)
         if temporal_ema > 0.0 and n > 1:
             alpha = float(temporal_ema)
             # Apply EMA: mask[t] = alpha * mask[t-1] + (1 - alpha) * mask[t]
             for frame_idx in range(1, n):
                 masks[frame_idx] = alpha * masks[frame_idx - 1] + (1.0 - alpha) * masks[frame_idx]
-                combined_mask[frame_idx] = alpha * combined_mask[frame_idx - 1] + (1.0 - alpha) * combined_mask[frame_idx]
 
         # back to original device
         masks = masks.to(original_device, non_blocking=True)
