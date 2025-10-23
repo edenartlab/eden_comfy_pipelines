@@ -184,48 +184,19 @@ class MaskFromRGB_KMeans:
         # reshape labels back to (N, H, W)
         cluster_labels = cluster_labels_flat.view(n, h, w)
 
-        # ========== TEMPORAL CONSISTENCY: Match clusters across frames ==========
-        # For each frame after the first, reorder cluster indices to match previous frame
-        # based on spatial overlap (which cluster has most pixels in common)
-        if n > 1:
-            for frame_idx in range(1, n):
-                prev_labels = cluster_labels[frame_idx - 1]  # (h, w)
-                curr_labels = cluster_labels[frame_idx]      # (h, w)
-
-                # Compute overlap matrix: overlap[i,j] = # pixels where prev==i and curr==j
-                overlap = torch.zeros((n_color_clusters, n_color_clusters), device=device)
-                for i in range(n_color_clusters):
-                    for j in range(n_color_clusters):
-                        overlap[i, j] = ((prev_labels == i) & (curr_labels == j)).sum()
-
-                # Hungarian matching: for each prev cluster i, find best matching curr cluster
-                # Greedy approach: repeatedly pick the highest overlap pair
-                curr_to_prev = torch.full((n_color_clusters,), -1, dtype=torch.long, device=device)
-                used_prev = torch.zeros(n_color_clusters, dtype=torch.bool, device=device)
-                used_curr = torch.zeros(n_color_clusters, dtype=torch.bool, device=device)
-
-                for _ in range(n_color_clusters):
-                    # Mask out already-used indices
-                    masked_overlap = overlap.clone()
-                    masked_overlap[used_prev, :] = -1
-                    masked_overlap[:, used_curr] = -1
-
-                    # Find best match
-                    flat_idx = masked_overlap.argmax()
-                    i = flat_idx // n_color_clusters
-                    j = flat_idx % n_color_clusters
-
-                    curr_to_prev[j] = i
-                    used_prev[i] = True
-                    used_curr[j] = True
-
-                # Remap current frame's labels to match previous frame's indices
-                remapped_labels = torch.zeros_like(curr_labels)
-                for curr_idx in range(n_color_clusters):
-                    prev_idx = curr_to_prev[curr_idx]
-                    remapped_labels[curr_labels == curr_idx] = prev_idx
-
-                cluster_labels[frame_idx] = remapped_labels
+        # ========== TEMPORAL CONSISTENCY: REMOVED ==========
+        # The previous spatial overlap matching caused glitches when:
+        # 1. Clusters appeared/disappeared between frames
+        # 2. Scene changes occurred
+        # 3. Not all clusters were present in every frame
+        #
+        # Since k-means is fit on ALL frames together and luminance sorting
+        # provides deterministic ordering, the labels should already be
+        # temporally consistent without additional matching.
+        #
+        # Combined mask shows smooth gradients because it represents all clusters.
+        # Individual masks are now stable because they consistently represent
+        # the same luminance-ordered cluster across all frames.
 
         # optional equalize (kept off by default)
         if equalize_areas > 0:
@@ -235,10 +206,10 @@ class MaskFromRGB_KMeans:
             #)
             #cluster_labels = flat_eq.view(n, h, w)
 
-        # ========== SIMPLIFIED: Generate individual masks directly from cluster_labels ==========
-        # Since cluster_labels is already temporally stable (due to Hungarian matching),
-        # we simply create binary masks for each cluster and apply feathering.
-        # This produces clean, temporally consistent masks without complex soft assignment logic.
+        # ========== Generate individual masks directly from cluster_labels ==========
+        # cluster_labels uses luminance-sorted indices that are consistent across frames
+        # because k-means was fit on all frames together. We create binary masks for
+        # each cluster and apply feathering for smooth boundaries.
 
         # Generate binary masks for each cluster: 1.0 where cluster == k, 0.0 elsewhere
         masks_list = []
