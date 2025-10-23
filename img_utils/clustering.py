@@ -309,8 +309,8 @@ class MaskFromRGB_KMeans:
 
         # upscale back to original
         H0, W0 = image.shape[1], image.shape[2]
-        masks = F.interpolate(masks, size=(H0,W0), mode='bicubic', align_corners=False)
-        combined_mask = F.interpolate(combined_mask.unsqueeze(1), size=(H0,W0), mode='bicubic', align_corners=False).squeeze(1)
+        masks = F.interpolate(masks, size=(H0,W0), mode='bicubic', align_corners=False).clamp(0, 1)
+        combined_mask = F.interpolate(combined_mask.unsqueeze(1), size=(H0,W0), mode='bicubic', align_corners=False).squeeze(1).clamp(0, 1)
 
         # back to original device
         masks = masks.to(original_device, non_blocking=True)
