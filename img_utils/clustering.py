@@ -121,6 +121,72 @@ def fit_kmeans_gpu(lab_flat, n_color_clusters, max_fit_points=200_000, iters=25,
     labels_full = torch.argmin(dist2_full, dim=1)
     return centers, labels_full
 
+def equalize_cluster_areas(lab_flat, labels, centers, strength, max_iters=5):
+    """
+    Reassign pixels to equalize cluster areas while preserving color similarity.
+
+    Uses an iterative algorithm that adds a size-based penalty to cluster distances.
+    This naturally causes pixels near cluster boundaries to redistribute, growing small
+    clusters and shrinking large ones, without creating spatial discontinuities.
+
+    Works purely in LAB color space (like KMeans), ensuring temporal consistency when
+    clustering video frames. Pixels only switch clusters if an alternative cluster
+    center is similarly close in color space.
+
+    Args:
+        lab_flat: (N, 3) LAB color values for all pixels across all frames
+        labels: (N,) initial cluster assignments from KMeans
+        centers: (K, 3) cluster centers in LAB space
+        strength: 0-1 value controlling the weight of area equalization
+                  0 = keep original KMeans assignments
+                  1 = strongly enforce equal areas
+        max_iters: maximum number of reassignment iterations (default: 5)
+
+    Returns:
+        labels: (N,) adjusted cluster assignments with more balanced areas
+    """
+    if strength <= 0:
+        return labels
+
+    K = centers.shape[0]
+    N = lab_flat.shape[0]
+    target_size = N / K
+    device = lab_flat.device
+
+    labels = labels.clone()
+
+    # Compute base distances once (in float32 for stability)
+    base_distances = torch.cdist(lab_flat.float(), centers.float(), p=2)  # (N, K)
+
+    # Scale strength to a reasonable range for the penalty
+    # We want the penalty to be comparable to distance variations
+    distance_scale = base_distances.std().item()
+    scaled_strength = strength * distance_scale
+
+    for iteration in range(max_iters):
+        # Current cluster sizes
+        counts = torch.bincount(labels, minlength=K).float()
+
+        # Compute size penalty: log(count / target) makes larger clusters less attractive
+        # The logarithm ensures scale-invariance: a cluster 2x too large has the same
+        # penalty magnitude as a cluster 0.5x too small
+        size_ratio = (counts + 1.0) / (target_size + 1.0)  # +1 to avoid log(0)
+        size_penalty = scaled_strength * torch.log(size_ratio)  # (K,)
+
+        # Adjust distances by adding size penalty
+        adjusted_distances = base_distances + size_penalty.unsqueeze(0)  # (N, K)
+
+        # Reassign based on adjusted distances
+        new_labels = torch.argmin(adjusted_distances, dim=1)
+
+        # Check convergence: stop if no pixels changed assignment
+        if (new_labels == labels).all():
+            break
+
+        labels = new_labels
+
+    return labels
+
 # ============================================================
 # ComfyUI Node
 # ============================================================
@@ -181,30 +247,23 @@ class MaskFromRGB_KMeans:
         index_map[sorted_indices] = torch.arange(n_color_clusters, device=device)
         cluster_labels_flat = index_map[cluster_labels_flat]
 
+        # Apply area equalization if requested
+        if equalize_areas > 0:
+            cluster_labels_flat = equalize_cluster_areas(
+                lab_flat,
+                cluster_labels_flat,
+                centers[sorted_indices],  # Use luminance-sorted centers
+                strength=float(equalize_areas)
+            )
+
         # reshape labels back to (N, H, W)
         cluster_labels = cluster_labels_flat.view(n, h, w)
 
-        # ========== TEMPORAL CONSISTENCY: REMOVED ==========
-        # The previous spatial overlap matching caused glitches when:
-        # 1. Clusters appeared/disappeared between frames
-        # 2. Scene changes occurred
-        # 3. Not all clusters were present in every frame
-        #
-        # Since k-means is fit on ALL frames together and luminance sorting
-        # provides deterministic ordering, the labels should already be
-        # temporally consistent without additional matching.
-        #
-        # Combined mask shows smooth gradients because it represents all clusters.
-        # Individual masks are now stable because they consistently represent
-        # the same luminance-ordered cluster across all frames.
-
-        # optional equalize (kept off by default)
-        if equalize_areas > 0:
-            print("equalize_areas is not implemented yet!!")
-            #flat_eq = equalize_areas_fast(
-            #    lab_flat, cluster_labels.view(-1), centers[sorted_indices], strength=float(equalize_areas)
-            #)
-            #cluster_labels = flat_eq.view(n, h, w)
+        # ========== TEMPORAL CONSISTENCY ==========
+        # K-means is fit on ALL frames together and luminance sorting provides
+        # deterministic ordering, ensuring labels are temporally consistent without
+        # additional matching. Area equalization (if enabled) also works on all frames
+        # together, maintaining this temporal consistency.
 
         # ========== Generate individual masks directly from cluster_labels ==========
         # cluster_labels uses luminance-sorted indices that are consistent across frames
