@@ -2,29 +2,28 @@
 name = "eden_comfy_pipelines"
 description = "A collection of custom nodes and workflows for ComfyUI, developed by https://www.eden.art/"
 version = "1.3.1"
-license = {file = "LICENSE"}
-dependencies = [
-    "clip-interrogator==0.6.0",
-    "open_clip_torch==2.26.1",
-    "openai",
-    "python-dotenv",
-    "scikit-learn",
-    "transformers",
-    "matplotlib",
-    "scikit-image",
-    "opencv-python",
-    "piexif",
-    "py7zr",
-    "lpips",
-    "tsp_solver2",
-    "einops",
-]
+license = {file = "LICENSE"} 
+classifiers = [
+    "Operating System :: OS Independent",
+    "Environment :: GPU :: NVIDIA CUDA",    # NVIDIA CUDA support
+    "Environment :: GPU :: AMD ROCm",       # AMD ROCm support
+    "Environment :: GPU :: Intel Arc",      # Intel Arc support
+    "Environment :: NPU :: Huawei Ascend",  # Huawei Ascend support
+    "Environment :: GPU :: Apple Metal",    # Apple Metal support
+ ]
+
+dependencies = ["clip-interrogator==0.6.0", "open_clip_torch==2.26.1", "py7zr==0.22.0", "openai>=1.57.2", "python-dotenv", "scikit-learn", "transformers", "matplotlib", "scikit-image", "opencv-python"]
 
 [project.urls]
 Repository = "https://github.com/edenartlab/eden_comfy_pipelines"
+#  Used by Comfy Registry https://registry.comfy.org
+Documentation = "https://github.com/edenartlab/eden_comfy_pipelines/wiki"
+"Bug Tracker" = "https://github.com/edenartlab/eden_comfy_pipelines/issues"
 
-# Used by Comfy Registry https://comfyregistry.org
 [tool.comfy]
 PublisherId = "edenartlab"
 DisplayName = "Eden Comfy Pack"
 Icon = "🌱🌱"
+includes = [] 
+# "requires-comfyui" = ">=1.0.0"  # ComfyUI version compatibility
+
