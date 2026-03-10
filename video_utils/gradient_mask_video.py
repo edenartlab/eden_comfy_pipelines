@@ -1,5 +1,4 @@
 import torch
-import matplotlib.pyplot as plt
 import numpy as np
 from io import BytesIO
 
@@ -21,6 +20,7 @@ class KeyframeBlender:
     CATEGORY = "Video Effects"
 
     def plot_denoising_values(self, denoising_values):
+        import matplotlib.pyplot as plt
         fig, ax = plt.subplots()
         ax.plot(denoising_values)
         ax.set(xlabel='Frame Number', ylabel='Denoising Value', title='Denoising Mask Curve')

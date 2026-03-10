@@ -17,7 +17,6 @@ import random
 import logging
 import zipfile
 import tarfile
-import py7zr
 from typing import Union, List, Tuple, Optional, Dict
 import shutil
 import tempfile
@@ -1412,6 +1411,7 @@ class Eden_AllMediaLoader:
                 with zipfile.ZipFile(archive_path, 'r') as z:
                     z.extractall(temp_dir)
             elif archive_path.lower().endswith('.7z'):
+                import py7zr
                 with py7zr.SevenZipFile(archive_path, mode='r') as z:
                     z.extractall(path=temp_dir)
             else:  # tar, tar.gz, tar.bz2

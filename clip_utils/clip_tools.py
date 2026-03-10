@@ -1,13 +1,6 @@
-import time
 import os
-import torch
-import PIL.Image
-from PIL import Image
-import sys, os, time, re
-
-# custom version of clip_interrogator which downloads to the ComfyUI models dir:
-from .clip_interrogator import Interrogator, Config
-
+import sys
+import re
 import torch
 import numpy as np
 from PIL import Image
@@ -109,6 +102,7 @@ class CLIP_Interrogator:
             if global_interrogator_model:
                 self.ci = global_interrogator_model
             else:
+                from .clip_interrogator import Interrogator, Config
                 BLIP_MODEL_DIR = os.path.abspath(os.path.join(str(folder_paths.models_dir), "blip"))
                 self.ci = Interrogator(Config(clip_model_path=clip_model_path, clip_model_name="ViT-L-14/openai", cache_dir=BLIP_MODEL_DIR))
                 

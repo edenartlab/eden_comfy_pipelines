@@ -9,12 +9,8 @@ import imghdr
 from PIL import Image, ImageOps, ImageSequence
 import torch.nn.functional as F
 
-from scipy import ndimage
-
-import torchvision.transforms.functional as T
 import comfy.utils
 from torch.cuda.amp import autocast
-import psutil
 
 ###########################################################################
 
@@ -31,6 +27,7 @@ class AnyType(str):
 any_typ = AnyType("*")
 
 def print_available_memory():
+    import psutil
     memory = psutil.virtual_memory()
     print(f"Available memory: {memory.available / 1024 / 1024 / 1024:.2f} GB")
 
@@ -188,6 +185,7 @@ class Eden_MaskBoundingBox:
     CATEGORY = "Eden/mask"
 
     def execute(self, mask, padding, blur, noise_threshold, image_optional=None):
+        import torchvision.transforms.functional as T
         if mask.dim() == 2:
             mask = mask.unsqueeze(0)
         if image_optional is None:
@@ -716,6 +714,7 @@ class Eden_Face_Crop:
         
         # Find connected components
         try:
+            from scipy import ndimage
             labeled, num_features = ndimage.label(mask_binary)
             
             if num_features == 0:

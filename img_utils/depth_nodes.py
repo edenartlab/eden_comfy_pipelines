@@ -1,38 +1,43 @@
 import torch
 import torch.nn.functional as F
 from PIL import Image
-import torch
 import cv2
 import numpy as np
-from sklearn.cluster import KMeans
-from sklearn.preprocessing import StandardScaler
-from scipy.spatial.distance import cdist
 import sys
 
-class WeightedKMeans(KMeans):
-    def __init__(self, n_clusters=8, weights=None, **kwargs):
-        super().__init__(n_clusters=n_clusters, **kwargs)
-        self.weights = weights
 
-    def fit(self, X):
-        if self.weights is None:
-            self.weights = np.ones(X.shape[1])
-        return super().fit(X)
+def _get_weighted_kmeans_class():
+    from sklearn.cluster import KMeans
+    from scipy.spatial.distance import cdist
 
-    def _weighted_euclidean_distance(self, X, Y):
-        return cdist(X, Y, metric='wminkowski', w=self.weights, p=2)
+    class WeightedKMeans(KMeans):
+        def __init__(self, n_clusters=8, weights=None, **kwargs):
+            super().__init__(n_clusters=n_clusters, **kwargs)
+            self.weights = weights
 
-    def fit_predict(self, X, y=None, sample_weight=None):
-        return super().fit_predict(X, sample_weight=sample_weight)
+        def fit(self, X):
+            if self.weights is None:
+                self.weights = np.ones(X.shape[1])
+            return super().fit(X)
 
-    def fit_transform(self, X, y=None, sample_weight=None):
-        return super().fit_transform(X, sample_weight=sample_weight)
+        def _weighted_euclidean_distance(self, X, Y):
+            return cdist(X, Y, metric='wminkowski', w=self.weights, p=2)
 
-    def transform(self, X):
-        return self._weighted_euclidean_distance(X, self.cluster_centers_)
+        def fit_predict(self, X, y=None, sample_weight=None):
+            return super().fit_predict(X, sample_weight=sample_weight)
+
+        def fit_transform(self, X, y=None, sample_weight=None):
+            return super().fit_transform(X, sample_weight=sample_weight)
+
+        def transform(self, X):
+            return self._weighted_euclidean_distance(X, self.cluster_centers_)
+
+    return WeightedKMeans
 
 
 def smart_depth_slicing(rgb_img, depth_img, n_slices, rgb_weight, standardize_features):
+    from sklearn.preprocessing import StandardScaler
+    WeightedKMeans = _get_weighted_kmeans_class()
     depth_img = depth_img.numpy() if hasattr(depth_img, 'numpy') else depth_img
     rgb_img = rgb_img.numpy() if hasattr(rgb_img, 'numpy') else rgb_img
 

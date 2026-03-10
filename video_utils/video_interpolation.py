@@ -1,5 +1,4 @@
 import numpy as np
-import matplotlib.pyplot as plt
 
 def compute_sampling_indices(total_n_frames, target_n_frames, verbose=0):
     """
@@ -31,6 +30,7 @@ def compute_sampling_indices(total_n_frames, target_n_frames, verbose=0):
         print(f"Visual Cost: {visual_cost:.3f}")
 
         # plot the index differences:
+        import matplotlib.pyplot as plt
         plt.figure(figsize=(10, 5))
         plt.plot(index_diffs, marker='o')
         plt.title(f"diffs @{target_n_frames}, cost = {visual_cost:.3f}, std_diff = {std_diff:.3f}")

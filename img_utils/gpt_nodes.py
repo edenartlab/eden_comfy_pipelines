@@ -2,19 +2,28 @@ import base64
 import io, os, sys
 from PIL import Image
 import numpy as np
-from openai import OpenAI
 
-from dotenv import load_dotenv
-load_dotenv()
+# Lazy-initialized OpenAI client
+_openai_client = None
+_openai_initialized = False
 
-try:
-    OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-    client = OpenAI(api_key=OPENAI_API_KEY)
-    print("OpenAI API key loaded")
-except:
-    OPENAI_API_KEY = None
-    client = None
-    print("Eden_Comfy_Pipelines: WARNING: Could not find OPENAI_API_KEY in .env, disabling gpt prompt generation.")
+def _get_openai_client():
+    global _openai_client, _openai_initialized
+    if not _openai_initialized:
+        _openai_initialized = True
+        try:
+            from openai import OpenAI
+            from dotenv import load_dotenv
+            load_dotenv()
+            api_key = os.getenv("OPENAI_API_KEY")
+            if api_key:
+                _openai_client = OpenAI(api_key=api_key)
+                print("OpenAI API key loaded")
+            else:
+                print("Eden_Comfy_Pipelines: WARNING: Could not find OPENAI_API_KEY in .env, disabling gpt prompt generation.")
+        except Exception:
+            print("Eden_Comfy_Pipelines: WARNING: Could not initialize OpenAI client.")
+    return _openai_client
 
 
 class Eden_gpt4_node:
@@ -35,7 +44,7 @@ class Eden_gpt4_node:
 
     def gpt4_completion(self, max_token, model, prompt, seed):
         try:
-
+            client = _get_openai_client()
             if not client:
                 print("An OpenAI API key is required for GPT node, put a .env file with your key in the comfyui root directory!")
                 return ("An OpenAI API key is required for GPT-4 Vision. Make sure to place a .env file in the root directory of eden_comfy_pipelines with your secret API key. Make sure to never share your API key with anyone.", )
@@ -95,6 +104,7 @@ class Eden_GPTPromptEnhancer:
 
     def enhance_prompt(self, basic_prompt, enhancement_instructions, max_token, model, seed, temperature=0.7):
         try:
+            client = _get_openai_client()
             if not client:
                 return ("An OpenAI API key is required for GPT Prompt Enhancer. Make sure to place a .env file in the root directory with your OpenAI API key.",)
 
@@ -122,9 +132,10 @@ Please enhance this prompt according to the instructions. Provide only the enhan
 
             enhanced_prompt = response.choices[0].message.content
             return (enhanced_prompt,)
-            
+
         except Exception as e:
             return (f"Error in prompt enhancement: {str(e)}",)
+
 
 class ImageDescriptionNode:
     @classmethod
@@ -157,14 +168,20 @@ class ImageDescriptionNode:
 
     def describe_image(self, image, max_token, endpoint, model, prompt):
         try:
+            from openai import OpenAI
             image = image[0]
             i = 255. * image.cpu().numpy()
             img = Image.fromarray(np.clip(i, 0, 255).astype(np.uint8))
 
-            if not OPENAI_API_KEY:
-                return "An OpenAI API key is required for GPT-4 Vision. Make sure to place a .env file in the root directory of eden_comfy_pipelines with your secret API key. Make sure to never share your API key with anyone."
-            
-            client = OpenAI(api_key=OPENAI_API_KEY, base_url=endpoint)
+            api_key = os.getenv("OPENAI_API_KEY")
+            if not api_key:
+                # Try to init the client which also calls load_dotenv
+                _get_openai_client()
+                api_key = os.getenv("OPENAI_API_KEY")
+            if not api_key:
+                return ("An OpenAI API key is required for GPT-4 Vision. Make sure to place a .env file in the root directory of eden_comfy_pipelines with your secret API key.",)
+
+            client = OpenAI(api_key=api_key, base_url=endpoint)
             processed_image = self.image_to_base64(img)
             detail = "low" if model == "gpt-4-vision Low" else "high"
             system_message = self.set_system_message("You are a helpful assistant.")
@@ -228,6 +245,7 @@ class Eden_GPTStructuredOutput:
 
     def generate_structured_output(self, prompt, system_prompt, json_schema, max_tokens, model, seed, temperature=0.7):
         try:
+            client = _get_openai_client()
             if not client:
                 return ("An OpenAI API key is required for GPT Structured Output. Make sure to place a .env file in the root directory with your OpenAI API key.",)
 
