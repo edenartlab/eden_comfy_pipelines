@@ -8,6 +8,16 @@ from .img_utils import rgb_to_lab
 # KMeans (GPU-friendly, deterministic)
 # ============================================================
 
+def _sq_dists(a, b):
+    """
+    Squared Euclidean distances between rows of a (N, D) and b (M, D).
+    Returns (N, M) tensor.  Uses matmul — much faster than torch.cdist on MPS/CPU.
+    """
+    a_sq = (a * a).sum(dim=1, keepdim=True)   # (N, 1)
+    b_sq = (b * b).sum(dim=1).unsqueeze(0)     # (1, M)
+    return (a_sq + b_sq - 2.0 * a @ b.t()).clamp_min(0.0)
+
+
 def kmeans_torch(x, k, iters=25, tol=1e-4, seed=12345):
     """
     x: (N, D) float tensor on any device.
@@ -21,14 +31,14 @@ def kmeans_torch(x, k, iters=25, tol=1e-4, seed=12345):
     # KMeans++ initialization
     centers = x[torch.randint(0, N, (1,), device=device, generator=g)]
     for _ in range(1, k):
-        dist2 = torch.cdist(x, centers).pow(2).min(dim=1).values
+        dist2 = _sq_dists(x, centers).min(dim=1).values
         probs = dist2 / (dist2.sum() + 1e-12)
         centers = torch.cat([centers, x[torch.multinomial(probs, 1, generator=g)]], dim=0)
 
     # Iterative refinement
     prev_inertia = None
     for _ in range(iters):
-        dist2 = torch.cdist(x, centers).pow(2)
+        dist2 = _sq_dists(x, centers)
         labels = dist2.argmin(dim=1)
         inertia = dist2.gather(1, labels.unsqueeze(1)).sum()
 
@@ -127,13 +137,13 @@ class MaskFromRGB_KMeans:
         centers = centers[centers[:, 0].argsort()]
 
         # Area equalization bias (estimated from KMeans subsample)
-        pairwise_dist = torch.cdist(centers, centers)
+        pairwise_dist = _sq_dists(centers, centers).sqrt()
         off_diag = pairwise_dist[~torch.eye(K, dtype=torch.bool, device=device)]
         scale = off_diag.mean().clamp_min(1e-3)
 
         area_bias = torch.zeros(K, device=device)
         if equalize_areas > 0:
-            fit_dist = torch.cdist(fit_data, centers)
+            fit_dist = _sq_dists(fit_data, centers).sqrt()
             fit_labels = fit_dist.argmin(dim=1)
             counts = torch.bincount(fit_labels, minlength=K).float()
             target = fit_data.shape[0] / K
@@ -146,12 +156,11 @@ class MaskFromRGB_KMeans:
         cluster_vals = torch.arange(K, device=device, dtype=torch.float32) / max(K - 1, 1)
         for b in range(B):
             frame_lab = lab[b].reshape(-1, 3).float()      # (H*W, 3)
-            dist = torch.cdist(frame_lab, centers)          # (H*W, K)
+            dist = _sq_dists(frame_lab, centers)            # (H*W, K)
             if equalize_areas > 0:
                 dist = dist + area_bias.unsqueeze(0)
             labels = dist.argmin(dim=1)                     # (H*W,)
-            for k in range(K):
-                masks[b, k] = (labels == k).float().reshape(H, W)
+            masks[b] = F.one_hot(labels, K).float().T.reshape(K, H, W)
             combined[b] = cluster_vals[labels].reshape(H, W)
 
         # Smooth mask edges with separable Gaussian blur
