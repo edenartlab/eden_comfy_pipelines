@@ -152,21 +152,22 @@ class MaskFromRGB_KMeans:
 
         # Hard assign pixels (frame-by-frame for memory efficiency)
         masks = torch.empty(B, K, H, W, device=device)
-        combined = torch.empty(B, H, W, device=device)
         cluster_vals = torch.arange(K, device=device, dtype=torch.float32) / max(K - 1, 1)
         for b in range(B):
             frame_lab = lab[b].reshape(-1, 3).float()      # (H*W, 3)
-            dist = _sq_dists(frame_lab, centers)            # (H*W, K)
+            dist = _sq_dists(frame_lab, centers).sqrt()       # (H*W, K)
             if equalize_areas > 0:
                 dist = dist + area_bias.unsqueeze(0)
             labels = dist.argmin(dim=1)                     # (H*W,)
             masks[b] = F.one_hot(labels, K).float().T.reshape(K, H, W)
-            combined[b] = cluster_vals[labels].reshape(H, W)
 
         # Smooth mask edges with separable Gaussian blur
         sigma = softness * min(H, W) * 0.02
         masks = _separable_gaussian_blur(masks, sigma)
         masks = masks / masks.sum(dim=1, keepdim=True).clamp_min(1e-8)
+
+        # Rebuild combined from smoothed masks so softness is reflected
+        combined = torch.einsum('bkhw,k->bhw', masks[:, :K], cluster_vals)
 
         # Pad to 8 mask outputs
         if K < 8:
