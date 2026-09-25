@@ -1,177 +1,148 @@
-import torch
+import os
+import re
+import subprocess
+
 import numpy as np
-from io import BytesIO
+import torch
+from folder_paths import get_output_directory
+
 
 class KeyframeBlender:
+    DESCRIPTION = "Crossfades between keyframe images (and their IP-Adapter embeds) over n_frames, and builds per-frame denoising / attention masks that peak halfway between keyframes."
+
     @classmethod
     def INPUT_TYPES(s):
-        return {"required": 
-                    {"image_frames": ("IMAGE",),
-                     "keyframe_ip_adapter_features": ("EMBEDS",),
-                     "n_frames": ("INT", {"default": 50}),
-                     "denoise_gamma": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 5.0}),
-                     "ip_adapter_gamma": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 5.0}),
+        return {"required":
+                    {"image_frames": ("IMAGE", {"tooltip": "Keyframes to blend between (at least 2)."}),
+                     "keyframe_ip_adapter_features": ("EMBEDS", {"tooltip": "One IP-Adapter embed per keyframe, interpolated like the images."}),
+                     "n_frames": ("INT", {"default": 50, "tooltip": "Total number of output frames."}),
+                     "denoise_gamma": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 5.0, "tooltip": "Gamma applied to the denoising masks; >1 keeps frames near the keyframes cleaner."}),
+                     "ip_adapter_gamma": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 5.0, "tooltip": "Gamma applied to the IP-Adapter attention masks."}),
                     }
                 }
 
     RETURN_TYPES = ("IMAGE", "MASK", "MASK", "IMAGE", "EMBEDS")
     RETURN_NAMES = ("keyframe_blend", "denoising_masks", "ip_adapter_attention_masks", "denoising_mask_curve", "ip_adapter_trajectory")
+    OUTPUT_TOOLTIPS = ("Crossfaded frames.", "Per-frame denoising strength masks (0 at keyframes, 1 halfway).", "Per-frame IP-Adapter attention masks.", "Plot of the denoising curve.", "Interpolated IP-Adapter embeds, one per frame.")
     FUNCTION = "blend_keyframes"
-    CATEGORY = "Video Effects"
+    CATEGORY = "Eden 🌱/Video"
 
     def plot_denoising_values(self, denoising_values):
-        import matplotlib.pyplot as plt
-        fig, ax = plt.subplots()
+        from matplotlib.backends.backend_agg import FigureCanvasAgg
+        from matplotlib.figure import Figure
+
+        fig = Figure()
+        canvas = FigureCanvasAgg(fig)
+        ax = fig.subplots()
         ax.plot(denoising_values)
         ax.set(xlabel='Frame Number', ylabel='Denoising Value', title='Denoising Mask Curve')
         ax.grid()
         ax.set_ylim(0, 1)
-        fig.canvas.draw()
-        image_from_plot = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
-        image_from_plot = image_from_plot.reshape(fig.canvas.get_width_height()[::-1] + (3,))
-        tensor_image = torch.from_numpy(image_from_plot).float().unsqueeze(0) / 255.0
-        plt.close(fig)
-        return tensor_image
+        canvas.draw()
+        rgb = np.asarray(canvas.buffer_rgba())[..., :3]
+        return torch.from_numpy(rgb.copy()).float().unsqueeze(0) / 255.0
 
     def blend_keyframes(self, image_frames, keyframe_ip_adapter_features, n_frames, denoise_gamma, ip_adapter_gamma):
-        num_keyframes, height, width, channels = image_frames.shape
-        _, n_features, feature_dim = keyframe_ip_adapter_features.shape
+        num_keyframes, height, width, _ = image_frames.shape
         device = image_frames.device
 
         transition_frames = [n_frames // (num_keyframes - 1)] * (num_keyframes - 1)
-        remainder = n_frames % (num_keyframes - 1)
-        for i in range(remainder):
+        for i in range(n_frames % (num_keyframes - 1)):
             transition_frames[i] += 1
 
-        blended_video = torch.zeros(n_frames, height, width, 3, device=device)
-        denoising_masks = torch.zeros(n_frames, height, width, device=device)
-        ip_adapter_trajectory = torch.zeros(n_frames, n_features, feature_dim, device=device)
-
+        # Per output frame: which keyframe pair, the blend weight, and the denoising value
+        segment, alphas, denoising_values = [], [], []
         start_frame = 0
-        denoising_values = []
-        for i in range(num_keyframes - 1):
-            end_frame = start_frame + transition_frames[i]
-            midpoint_frame = start_frame + (end_frame - start_frame) // 2
-
+        for i, length in enumerate(transition_frames):
+            end_frame = start_frame + length
+            midpoint_frame = start_frame + length // 2
             for j in range(start_frame, end_frame):
-                alpha = (j - start_frame) / (end_frame - start_frame)
-                blended_video[j] = image_frames[i] * (1 - alpha) + image_frames[i + 1] * alpha
-                ip_adapter_trajectory[j] = keyframe_ip_adapter_features[i] * (1 - alpha) + keyframe_ip_adapter_features[i + 1] * alpha
-
+                segment.append(i)
+                alphas.append((j - start_frame) / length)
                 if j < midpoint_frame:
-                    denoising_value = (j - start_frame) / (midpoint_frame - start_frame)
+                    denoising_values.append((j - start_frame) / (midpoint_frame - start_frame))
                 else:
-                    denoising_value = (end_frame - j) / (end_frame - midpoint_frame)
-
-                denoising_values.append(denoising_value)
-                denoising_masks[j] = torch.tensor(denoising_value, device=device).float()
-
+                    denoising_values.append((end_frame - j) / (end_frame - midpoint_frame))
             start_frame = end_frame
 
-        denoising_values = np.array(denoising_values)**denoise_gamma
-        curve_image = self.plot_denoising_values(denoising_values)
+        def interpolate(x):
+            idx = torch.tensor(segment, device=x.device, dtype=torch.long)
+            shape = (-1,) + (1,) * (x.dim() - 1)
+            a = torch.tensor(alphas, device=x.device, dtype=x.dtype).view(shape)
+            one_minus_a = torch.tensor([1 - v for v in alphas], device=x.device, dtype=x.dtype).view(shape)
+            return x[idx] * one_minus_a + x[idx + 1] * a
 
-        # apply gamma corrections:
-        ip_adapter_attention_masks = denoising_masks.clone()
-        denoising_masks = denoising_masks ** denoise_gamma
-        ip_adapter_attention_masks = ip_adapter_attention_masks ** ip_adapter_gamma
+        blended_video = interpolate(image_frames)[..., :3].float()
+        ip_adapter_trajectory = interpolate(keyframe_ip_adapter_features).float().to(device)
+
+        values = torch.tensor(denoising_values, device=device, dtype=torch.float32).view(-1, 1, 1)
+        denoising_masks = (values ** denoise_gamma).expand(-1, height, width).contiguous()
+        ip_adapter_attention_masks = (values ** ip_adapter_gamma).expand(-1, height, width).contiguous()
+
+        curve_image = self.plot_denoising_values(np.array(denoising_values) ** denoise_gamma)
 
         return blended_video, denoising_masks, ip_adapter_attention_masks, curve_image, ip_adapter_trajectory
-    
 
-import os, re
-import subprocess
-import torch
-import numpy as np
-from folder_paths import get_output_directory
 
 class MaskedRegionVideoExport:
+    DESCRIPTION = "Encodes images with their masks as the alpha channel into a transparent video (VP9 webm or ProRes 4444 mov) in the output folder."
+
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "images": ("IMAGE",),
-                "masks": ("MASK",),
-                "fps": ("INT", {"default": 16, "min": 1, "max": 120}),
-                "filename_prefix": ("STRING", {"default": "masked_video"}),
-                "flip_mask": ("BOOLEAN", {"default": False}),
-                "format": (["webm", "prores_mov"],),
+                "images": ("IMAGE", {"tooltip": "Video frames."}),
+                "masks": ("MASK", {"tooltip": "One mask per frame; becomes the alpha channel (0 = transparent)."}),
+                "fps": ("INT", {"default": 16, "min": 1, "max": 120, "tooltip": "Frame rate of the exported video."}),
+                "filename_prefix": ("STRING", {"default": "masked_video", "tooltip": "Output file name prefix; a running number is appended."}),
+                "flip_mask": ("BOOLEAN", {"default": False, "tooltip": "Invert the masks before using them as alpha."}),
+                "format": (["webm", "prores_mov"], {"tooltip": "webm = VP9 with alpha, prores_mov = ProRes 4444 with alpha."}),
             }
         }
 
     RETURN_TYPES = ("STRING",)
     RETURN_NAMES = ("video_path",)
+    OUTPUT_TOOLTIPS = ("Full path of the exported video.",)
     OUTPUT_NODE = True
-    CATEGORY = "Video"
+    CATEGORY = "Eden 🌱/Loaders"
     FUNCTION = "export"
 
     def export(self, images, masks, fps, filename_prefix, flip_mask, format):
         if images.shape[0] != masks.shape[0]:
             raise ValueError("Number of images and masks must match!")
 
-        print(f"Masking images of shape: {images.shape} with masks of shape: {masks.shape}")
-        print(f"Mask max value: {masks.max()}, min value: {masks.min()}")
-
         output_dir = get_output_directory()
         ext = "webm" if format == "webm" else "mov"
-        base_name = f"{filename_prefix}"
-        existing_files = os.listdir(output_dir)
-        matcher = re.compile(re.escape(base_name) + r"_(\d+)\." + ext + r"$", re.IGNORECASE)
-        max_index = -1
-        for f in existing_files:
-            match = matcher.fullmatch(f)
-            if match:
-                max_index = max(max_index, int(match.group(1)))
-        new_index = max_index + 1
-        video_filename = f"{base_name}_{new_index:03d}.{ext}"
+        matcher = re.compile(re.escape(filename_prefix) + r"_(\d+)\." + ext, re.IGNORECASE)
+        indices = [int(m.group(1)) for m in map(matcher.fullmatch, os.listdir(output_dir)) if m]
+        video_filename = f"{filename_prefix}_{max(indices, default=-1) + 1:03d}.{ext}"
         video_path = os.path.join(output_dir, video_filename)
 
         height, width = images.shape[1:3]
-
+        input_args = [
+            "ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-vcodec", "rawvideo",
+            "-pix_fmt", "rgba", "-s", f"{width}x{height}", "-r", str(fps), "-i", "-",
+        ]
         if format == "webm":
-            codec = "libvpx-vp9"
-            pix_fmt = "yuva420p"
-            ffmpeg_args = [
-                "ffmpeg", "-y", "-f", "rawvideo", "-vcodec", "rawvideo",
-                "-pix_fmt", "rgba", "-s", f"{width}x{height}", "-r", str(fps),
-                "-i", "-", "-c:v", codec,
-                "-crf", "19", "-b:v", "0",
-                "-pix_fmt", pix_fmt,
-                "-auto-alt-ref", "0",
-                video_path
-            ]
-        else:  # prores_mov
-            codec = "prores_ks"
-            pix_fmt = "yuva444p10le"
-            ffmpeg_args = [
-                "ffmpeg", "-y", "-f", "rawvideo", "-vcodec", "rawvideo",
-                "-pix_fmt", "rgba", "-s", f"{width}x{height}", "-r", str(fps),
-                "-i", "-", "-c:v", codec,
-                "-profile:v", "4",  # ProRes 4444
-                "-pix_fmt", pix_fmt,
-                video_path
-            ]
+            codec_args = ["-c:v", "libvpx-vp9", "-crf", "19", "-b:v", "0", "-pix_fmt", "yuva420p", "-auto-alt-ref", "0"]
+        else:
+            codec_args = ["-c:v", "prores_ks", "-profile:v", "4", "-pix_fmt", "yuva444p10le"]
 
-        frames = []
-        for img, mask in zip(images, masks):
-            img = (img.cpu().numpy() * 255).clip(0, 255).astype(np.uint8)
-            mask = mask.cpu().numpy()
-
-            if flip_mask:
-                mask = 1.0 - mask
-
-            mask = np.clip(mask, 0, 1)
-            alpha = (mask * 255).astype(np.uint8)
-            img[alpha == 0] = 0
-            rgba = np.dstack([img, alpha])
-            frames.append(rgba)
-
-        video_data = b''.join([frame.tobytes() for frame in frames])
-
+        proc = subprocess.Popen(input_args + codec_args + [video_path], stdin=subprocess.PIPE, stderr=subprocess.PIPE)
         try:
-            subprocess.run(ffmpeg_args, input=video_data, check=True)
-        except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"ffmpeg failed: {e.stderr}")
+            for img, mask in zip(images, masks):
+                rgb = (img * 255).clamp(0, 255).to(torch.uint8)
+                if flip_mask:
+                    mask = 1.0 - mask
+                alpha = (mask.clamp(0, 1) * 255).to(torch.uint8)
+                rgb[alpha == 0] = 0
+                proc.stdin.write(torch.cat([rgb, alpha.unsqueeze(-1)], dim=-1).cpu().numpy().tobytes())
+        except BrokenPipeError:
+            pass
+        proc.stdin.close()
+        err = proc.stderr.read()
+        if proc.wait() != 0:
+            raise RuntimeError(f"ffmpeg failed: {err.decode(errors='replace')}")
 
         preview = {
             "filename": video_filename,
@@ -182,5 +153,4 @@ class MaskedRegionVideoExport:
             "workflow": "",
             "fullpath": video_path,
         }
-
         return {"ui": {"gifs": [preview]}, "result": (video_path,)}

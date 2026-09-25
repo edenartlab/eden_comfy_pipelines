@@ -1,228 +1,255 @@
 <div align="center">
-  <img src="assets/eden.png" alt="Eden.art Logo" width="300">
-  <h1>🌱 Eden ComfyUI Custom Node Suite</h1>
-  <p>A comprehensive collection of specialized ComfyUI nodes for advanced generative AI workflows</p>
-  <p><strong>Developed by <a href="https://www.eden.art/">Eden.art</a></strong></p>
+
+<img src="assets/eden.png" alt="Eden logo" width="120">
+
+# Eden ComfyUI Pack
+
+**80+ nodes for masks, animation, color, depth, media loading and workflow logic.**<br>
+Built and used in production by [Eden.art](https://www.eden.art/).
+
+[![Comfy Registry](https://img.shields.io/badge/Comfy%20Registry-eden__comfy__pipelines-4c9a2a)](https://registry.comfy.org/nodes/eden_comfy_pipelines)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
+<img src="assets/screenshots/kmeans.jpg" alt="Mask From RGB (KMeans) splitting a landscape into color masks" width="100%">
+
 </div>
 
----
+## Installation
 
-## 📖 Overview
+Search for **Eden Comfy Pack** in ComfyUI Manager, or:
 
-This repository contains 70+ custom ComfyUI nodes designed to enhance creative AI workflows with advanced image processing, depth manipulation, AI-powered text generation, logical operations, and sophisticated video effects. These nodes power many of the creative tools available on [Eden.art](https://www.eden.art/).
-
-## 🚀 Quick Start
-
-### Installation
 ```bash
-cd ComfyUI/custom_nodes/
+comfy node install eden_comfy_pipelines
+```
+
+<details>
+<summary>Manual install</summary>
+
+```bash
+cd ComfyUI/custom_nodes
 git clone https://github.com/edenartlab/eden_comfy_pipelines.git
-cd eden_comfy_pipelines
-pip install -r requirements.txt
+pip install -r eden_comfy_pipelines/requirements.txt
 ```
+</details>
 
-### OpenAI Setup (Optional)
-For GPT-powered nodes, create a `.env` file in your ComfyUI root directory:
-```
-OPENAI_API_KEY=your_api_key_here
-```
+Requires ComfyUI 0.3.48+. All nodes are under **Eden 🌱** in the node library, with tooltips on nearly every input.
 
 ---
 
-## 🎯 Node Categories
+## Highlights
 
-### 🤖 AI & GPT Integration
+### 🎨 Mask From RGB (KMeans)
 
-#### **GPT4 Text Completion**
-<img src="assets/eden_gpt4_node.jpg" alt="GPT4 Node" width="400">
+Splits an image or a whole video into up to 8 soft color-region masks, plus a combined grayscale map (top image). Clustering runs once over all frames, so each mask tracks the same colors through a video. This is the node behind Eden's **TextureFlow** workflow.
 
-Advanced text generation with GPT-4 integration:
-- **Eden_gpt4_node**: Direct GPT-4 API integration with customizable models (gpt-4o, gpt-4-turbo)
-- **Eden_GPTPromptEnhancer**: Intelligently enhance basic prompts with detailed descriptions and artistic elements
-- **Eden_GPTStructuredOutput**: Generate structured JSON responses following custom schemas
+- `n_color_clusters`: number of masks.
+- `softness`: how feathered the edges are.
+- `equalize_areas`: evens out mask sizes.
 
-#### **GPT4 Vision & Image Analysis**
-<img src="assets/imagedescriptionnode.jpg" alt="GPT4 Vision Node" width="400">
+### 🌿 Organic Fill Animation
 
-Powerful image understanding capabilities:
-- **ImageDescriptionNode**: Generate detailed captions and descriptions from images
-- **CLIP_Interrogator**: Extract comprehensive text descriptions using CLIP + BLIP models
+Grows a noisy, organic fill through the dark shape of any image and returns a mask video. `loop` plays it back out again. **Organic Fill Random 🎲** samples every growth parameter from a seed, for quick variations.
 
----
+<img src="assets/screenshots/organic_fill.jpg" alt="Organic Fill Animation node" width="100%">
+<img src="assets/screenshots/strip_organic_fill.jpg" alt="Organic fill frames" width="100%">
 
-### 🖼️ Advanced Image Processing
+### 🌀 Animated masks
 
-#### **Smart Image Loading & Management**
-<img src="assets/loadrandomimage.jpg" alt="LoadRandomImage Node" width="400">
+**Animated Shape Mask** makes moving bands, sine waves and growing or shrinking circles, with soft gradient edges. **Animation RGB Mask** makes looping multi-region patterns (rotating or pushing segments, concentric circles or rectangles, stripes). Both are useful as masks for regional prompting and for AnimateDiff or IP-Adapter attention masks.
 
-Intelligent batch processing tools:
-- **LoadRandomImage**: Process multiple images with automatic aspect ratio correction
-- **ImageFolderIterator**: Sequential image loading with index-based selection
-- **LoadImagesByFilename**: Batch load images by filename patterns
+<img src="assets/screenshots/shape_masks.jpg" alt="Animated Shape Mask and Animation RGB Mask nodes" width="100%">
+<img src="assets/screenshots/strip_shape_circle.jpg" alt="Expanding circle frames" width="100%">
+<img src="assets/screenshots/strip_rgb_mask.jpg" alt="Rotating segments frames" width="100%">
 
-#### **Precision Image Manipulation**
-<img src="assets/SaveImage.png" alt="Enhanced SaveImage Node" width="400">
+### 🌈 Histogram Matching
 
-Professional image handling:
-- **SaveImageAdvanced**: Enhanced saving with timestamps and metadata export
-- **VAEDecode_to_folder**: Direct-to-disk VAE decoding for long sequences
-- **IMG_padder/IMG_unpadder**: Smart padding with edge-color matching
-- **IMG_scaler**: Mathematical operations on pixel values
-- **IMG_blender**: Advanced image blending with weight control
+Transfers the color distribution of a reference image onto any batch of images. `matching_fraction` blends between the original and the fully matched result.
 
-#### **Color & Mask Generation**
-<img src="assets/maskfromrgb_kmeans.jpg" alt="Color Clustering Mask" width="400">
+<img src="assets/screenshots/histogram.jpg" alt="Histogram Matching node" width="100%">
 
-Advanced segmentation tools:
-- **MaskFromRGB_KMeans**: Generate precise masks using K-means color clustering
-- **Eden_MaskCombiner**: Combine multiple masks with sophisticated blending
-- **ConvertToGrayscale**: Professional grayscale conversion with alpha handling
-- **HistogramMatching**: Match color distributions between images
+### ➗ Image / Mask Math
 
----
+Write any expression over the inputs `a`, `b`, `c`, such as `a * b`, `sin(a*pi) * b + c` or `max(a, b)`. Images and masks broadcast to each other automatically, and the result comes out as both an IMAGE and a MASK. Here a KMeans mask cuts one color region out of the image:
 
-### 🎭 Face Processing & Detection
+<img src="assets/screenshots/image_math.jpg" alt="Image / Mask Math node" width="100%">
 
-Comprehensive face manipulation toolkit:
-- **Eden_FaceToMask**: Automatic face detection and mask generation using MediaPipe
-- **Eden_Face_Crop**: Intelligent face cropping with padding and boundary handling
-- **Eden_ImageMaskComposite**: Advanced image compositing with mask support
+### 🔀 Logic, math and randomness
 
----
+- **If ANY Execute A Else B** is *lazy*: only the branch it picks runs, so the other branch's nodes never execute.
+- **Compare**, **Math Expression**, **Int / Float / Bool / String** and **Bool Binary Operation** cover everyday control flow.
+- **Random Number Sampler** shows the last value it drew right on the node.
+- Every random node uses its own seeded generator, so none of them resets the global random state for other nodes.
 
-### 📐 Depth & 3D Effects
+<img src="assets/screenshots/logic.jpg" alt="Logic, math and random nodes" width="100%">
 
-#### **Depth Analysis & Manipulation**
-<img src="assets/depthslicer.jpg" alt="DepthSlicer Node" width="400">
+### 📝 Prompt from Image Folder
 
-Create stunning depth-based effects:
-- **DepthSlicer**: Generate targeted masks from depth maps using K-means clustering
-- **Eden_DepthSlice_MaskVideo**: Animated depth slicing for video sequences
-- **ParallaxZoom**: 3D parallax effects from depth maps
+Point it at a folder of ComfyUI renders and it returns the positive prompt that made one of them. It traces the workflow embedded in the PNG from the sampler back to its text encoder. Use `seed` to step through the folder or pick at random.
 
-#### **3D Parallax Animation**
-<img src="assets/parallaxzoom.jpg" alt="Parallax Zoom Effect" width="400">
+<img src="assets/screenshots/prompt_folder.jpg" alt="Prompt from Image Folder node" width="100%">
 
-- **ParallaxZoom**: Create immersive Deforum-style 3D zoom effects
-- **AspectPadImageForOutpainting**: Intelligent padding for consistent aspect ratios
+### 📐 Depth & parallax
 
----
+- **Depth Slicer**: splits an image into depth layers.
+- **Parallax Zoom**: turns those layers into a Deforum-style 2.5D zoom/pan video.
+- **Depth Slice Mask Video**: sweeps a thin depth band through the scene, for reveal animations.
 
-### 🎲 Logic & Control Flow
+<img src="assets/screenshots/depth.jpg" alt="Depth nodes" width="100%">
 
-#### **Data Types & Comparisons**
-<img src="assets/random_number.jpg" alt="Random Number Sampler" width="400">
+### 📁 Loaders & savers
 
-Essential workflow control nodes:
-- **Eden_RandomNumberSampler**: Visual random number generation with live display
-- **Eden_Compare**: Advanced comparison operations for any data type
-- **Eden_IfExecute**: Conditional execution based on boolean logic
-- **Eden_BoolBinaryOperation**: Boolean algebra operations (AND, OR, XOR, etc.)
+- **All Media Loader**: one node for an image, a folder, a glob pattern, a video (mp4/mov/webm/mkv/avi), a GIF or a zip/tar/7z of images, with frame-rate subsampling and a max resolution.
+- **Load Random Image(s)**: a seeded batch from a folder.
+- **Save Image Advanced (Eden)**: adds a timestamp and a sidecar JSON of the workflow.
+- Folder loaders re-run when the files in the folder change, and stay cached otherwise.
 
-#### **Utilities & Conversion**
-- **Eden_String/Int/Float/Bool**: Type conversion and value passing
-- **Eden_Math**: Mathematical operations on numeric values
-- **Eden_StringHash**: Generate deterministic hashes from strings
-- **Eden_Debug_Anything**: Comprehensive debugging with type analysis
+<img src="assets/screenshots/loaders.jpg" alt="Loader and saver nodes" width="100%">
+
+### 🤖 AI helpers
+
+- **GPT Prompt Enhancer**, **GPT-4 Completion**, **GPT Structured Output (JSON)** and **GPT Image Description** use your OpenAI key.
+- **CLIP Interrogator** runs locally and turns an image into an SD-style prompt.
+
+<img src="assets/screenshots/ai.jpg" alt="GPT Prompt Enhancer and CLIP Interrogator nodes" width="100%">
+
+The GPT nodes read `OPENAI_API_KEY` from the environment, or from a `.env` file in the ComfyUI root.
 
 ---
 
-### 📁 File & Data Management
+## All nodes
 
-#### **File Operations**
-- **GetRandomFile**: Random file selection from directories
-- **FolderScanner**: Comprehensive folder analysis and file listing
-- **Eden_AllMediaLoader**: Load various media types with validation
-- **Eden_Save_Param_Dict**: Export workflow parameters as JSON
+The name in `code` is the node id stored in saved workflows.
 
-#### **Random Sampling & Selection**
-- **Eden_RandomFilepathSampler**: Statistical file path sampling
-- **Eden_RandomPromptFromFile**: Load random prompts from text files
-- **Eden_randbool**: Random boolean generation with probability control
+<details>
+<summary><b>🎭 Mask</b> (9)</summary>
+
+| Node | What it does |
+|---|---|
+| **Mask From RGB (KMeans) 🎨** `MaskFromRGB_KMeans` | Color-region masks for images and video |
+| **Mask Combiner** `Eden_MaskCombiner` | Blends up to 3 masks with signed strengths and a soft percentile clamp |
+| **Mask Bounding Box Crop** `Eden_MaskBoundingBox` | Crops a mask (and image) to the mask's bounding box, after removing speckles |
+| **Face to Mask (MediaPipe)** `Eden_FaceToMask` | A rectangle mask per detected face (needs the legacy `mediapipe` *solutions* API) |
+| **Animated Shape Mask** `AnimatedShapeMaskNode` | Moving band, sine wave or growing/shrinking circle masks |
+| **Animation RGB Mask** `Animation_RGB_Mask` | Looping multi-region band animations |
+| **Organic Fill Animation 🌿** `Eden_OrganicFillAnimation` | Organic growth filling a shape |
+| **Organic Fill Random 🎲** `Eden_OrganicFillRandom` | The same, with parameters sampled from a seed |
+| **Gradient Border Mask** `Eden_GradientBorderMask` | White image with edges fading to black |
+</details>
+
+<details>
+<summary><b>🖼️ Image</b> (15)</summary>
+
+| Node | What it does |
+|---|---|
+| **Image / Mask Math** `Eden_Image_Math` | Expression over image/mask tensors `a`, `b`, `c` |
+| **Image Math (Pixel Expression)** `IMG_scaler` | Expression over every pixel value `x` |
+| **Image Blender** `IMG_blender` | Weighted blend of two batches |
+| **Histogram Matching** `HistogramMatching` | Color transfer from a reference image |
+| **Convert to Grayscale** `ConvertToGrayscale` | 3-channel grayscale, RGBA-aware |
+| **RGBA to RGB** `Eden_RGBA_to_RGB` | Flattens alpha onto a background |
+| **Image Padder / Unpadder** `Eden_IMG_padder` / `Eden_IMG_unpadder` | Adds or removes an edge-colored border |
+| **Crop to Resolution Multiple** `IMG_resolution_multiple_of` | Crops to multiples of N |
+| **Aspect Pad Image for Outpainting** `AspectPadImageForOutpainting` | Pads to an SDXL aspect ratio |
+| **Image Mask Composite** `Eden_ImageMaskComposite` | Pastes a source onto a destination through a mask |
+| **Face Crop** `Eden_Face_Crop` | Crops around a face mask and returns paste-back info |
+| **Width/Height Picker** `WidthHeightPicker` | Scales a resolution and rounds it to a multiple |
+| **Projection Preview (Additive)** `ProjectionPreview` | Simulates a projection on a textured surface |
+| **Surface Radiometric Compensation** `SurfaceRadiometricCompensation` | Projector image that compensates for the surface |
+</details>
+
+<details>
+<summary><b>📐 Depth & 🎬 Video</b> (7)</summary>
+
+| Node | What it does |
+|---|---|
+| **Depth Slicer** `DepthSlicer` | Depth layers via k-means |
+| **Parallax Zoom** `ParallaxZoom` | 2.5D zoom/pan video from layers |
+| **Depth Slice Mask Video** `Eden_DepthSlice_MaskVideo` | Sweeping depth-band masks |
+| **Video Frame Selector** `VideoFrameSelector` | Evenly spaced frames and an interpolation multiplier for a target fps |
+| **Keyframe Blender 🎞️** `KeyframeBlender` | Crossfades keyframes and IP-Adapter embeds with per-frame masks |
+| **Extend Sequence (Loop / Ping-Pong)** `Extend_Sequence` | Loops or ping-pongs a sequence to N frames |
+| **Determine Frame Count** `Eden_DetermineFrameCount` | Snaps a frame count to a multiple of the source length |
+</details>
+
+<details>
+<summary><b>📁 Loaders & savers</b> (10)</summary>
+
+| Node | What it does |
+|---|---|
+| **All Media Loader 📁** `Eden_AllMediaLoader` | Images, folders, globs, videos, GIFs, archives |
+| **Load Random Image(s) 🎲** `LoadRandomImage` | A seeded batch from a folder |
+| **Image Folder Iterator** `ImageFolderIterator` | The image at an index in a folder |
+| **Load Images by Filename** `LoadImagesByFilename` | Loads images from a list of paths |
+| **Get Random File 🎲** `GetRandomFile` | A seeded random file path |
+| **Load Prefixed Images** `Get_Prefixed_Imgs` | Latest images whose name contains a prefix |
+| **Save Image Advanced (Eden) 💾** `Eden_SaveImageAdvanced` | PNG with a timestamp and a workflow JSON |
+| **VAE Decode to Folder** `VAEDecode_to_folder` | Decodes latents straight to disk, frame by frame |
+| **Masked Region Video Export (Alpha)** `MaskedRegionVideoExport` | Transparent webm/ProRes video (needs `ffmpeg`) |
+| **Save Param Dict 📁** `Eden_Save_Param_Dict` | Saves up to 10 key/value pairs as JSON |
+</details>
+
+<details>
+<summary><b>🔀 Logic, 🎲 Random & ✏️ Text</b> (21)</summary>
+
+| Node | What it does |
+|---|---|
+| **If ANY Execute A Else B 🔀** `If ANY execute A else B` | Lazy if/else on any value |
+| **Compare (a ? b)** `Eden_Compare` | `==`, `!=`, `<`, `>`, `<=`, `>=` on any type |
+| **Bool Binary Operation** `Eden_BoolBinaryOperation` | And, Or, Xor, Nand, … |
+| **Math Expression** `Eden_Math` | Expression in `a`, `b`, `c`; returns FLOAT, INT and STRING |
+| **Int / Float / Bool / String** `Eden_Int` / `Eden_Float` / `Eden_Bool` / `Eden_String` | Constants |
+| **Int to Float / Float to Int** `Eden_IntToFloat` / `Eden_FloatToInt` | Conversions |
+| **SD Type to String / SD Any-Type Converter** `SDTypeConverter` / `SDAnyConverter` | Combo → string, or any → wildcard |
+| **Random Number Sampler 🎲** `Eden_RandomNumberSampler` | A seeded number, shown on the node |
+| **Random Bool 🎲** `Eden_randbool` | True with a given probability |
+| **Random Filepath Sampler 🎲** `Eden_RandomFilepathSampler` | A seeded file, with filters |
+| **Prompt From File (by Seed) 🎲** `Eden_RandomPromptFromFile` | Line `seed % n` of a text file |
+| **Seed 🎲** `Eden_Seed` | A seed as INT and STRING |
+| **Prompt from Image Folder 🎲** `Eden_PromptFromImageFolder` | Recovers the prompt of a render in a folder |
+| **String Replace** `Eden_StringReplace` | Plain text replacement |
+| **Regex Replace** `Eden_Regex_Replace` | `re.sub` with a count and case sensitivity |
+| **String Hash** `Eden_StringHash` | Deterministic hash of a string |
+</details>
+
+<details>
+<summary><b>🤖 AI, 🔄 IP-Adapter & latent</b> (13)</summary>
+
+| Node | What it does |
+|---|---|
+| **GPT-4 Completion 🤖** `Eden_gpt4_node` | Prompt in, reply out |
+| **GPT Prompt Enhancer 🤖** `Eden_GPTPromptEnhancer` | Rewrites a prompt following instructions |
+| **GPT Structured Output (JSON) 🤖** `Eden_GPTStructuredOutput` | JSON reply following a schema |
+| **GPT Image Description 🤖** `ImageDescriptionNode` | Captions an image with GPT-4o |
+| **CLIP Interrogator 🔍** `CLIP_Interrogator` | Local image-to-prompt |
+| **IP-Adapter Settings** `IP_Adapter_Settings_Distribution` | Shared weight and weight type |
+| **Random Style Mixture 🎲** `Random_Style_Mixture` | Random weighted mixes of style embeds |
+| **Linear Combine IP Embeds** `Linear_Combine_IP_Embeds` | Interpolates two embeds |
+| **Save / Load IP-Adapter Embeds** `SavePosEmbeds` / `Load_Embeddings_From_Folder` / `FolderScanner` | Caches embeds as `.pth` next to their images |
+| **Latent Type Conversion (fp16/fp32)** `LatentTypeConversion` | Casts latents to halve memory |
+| **Repeat Latent Batch** `Eden_RepeatLatentBatch` | Repeats a latent batch and its noise mask |
+</details>
+
+<details>
+<summary><b>🐞 Utils & deprecated</b> (2)</summary>
+
+| Node | What it does |
+|---|---|
+| **Debug Anything 🐞** `Eden_Debug_Anything` | Logs type, shape, stats and a preview of any value |
+| **Organic Fill Mask Animation (Deprecated)** `OrganicFillNode` | Kept for old workflows; use **Organic Fill Animation** |
+</details>
 
 ---
 
-### 🎬 Video & Animation
+## Workflow compatibility
 
-#### **Video Processing**
-<img src="assets/parallaxzoom.jpg" alt="Video Effects" width="400">
+Node ids, inputs, defaults and outputs never change between versions, so workflows saved with older versions keep working.
 
-Advanced video manipulation:
-- **VideoFrameSelector**: Intelligent frame selection with temporal optimization
-- **KeyframeBlender**: Smooth keyframe interpolation for animations
-- **MaskedRegionVideoExport**: Export specific regions from video sequences
-- **Extend_Sequence**: Loop and extend video sequences with various modes
+Since May 2026, ComfyUI core has its own node with the id `SaveImageAdvanced`, and core ids always win. This pack's saver is now `Eden_SaveImageAdvanced`. Old workflows are migrated automatically: opening one in the UI renames the node, and API prompts that use Eden's inputs are routed to the Eden node on the server.
 
-#### **Animation Tools**
-- **Animation_RGB_Mask**: Create animated masks from RGB data
-- **AnimatedShapeMaskNode**: Generate animated geometric masks
-- **OrganicFillNode**: Organic mask filling for seamless animations
+## More
 
----
+- Example graphs: [`example_workflows/`](example_workflows/)
+- Eden's production workflows: [edenartlab/workflows](https://github.com/edenartlab/workflows)
+- Issues and ideas: [GitHub issues](https://github.com/edenartlab/eden_comfy_pipelines/issues)
 
-### 🔄 IP Adapter & Embeddings
-
-Advanced conditioning and style transfer:
-- **Random_Style_Mixture**: Blend multiple style embeddings randomly
-- **Linear_Combine_IP_Embeds**: Linear combination of IP adapter embeddings
-- **SavePosEmbeds/Load_Embeddings_From_Folder**: Embedding management system
-- **IP_Adapter_Settings_Distribution**: Control IP adapter influence distribution
-
----
-
-## 🎨 Featured Workflows
-
-The repository includes example workflows in `example_workflows/` showcasing:
-- **3D Animation**: Depth-based parallax effects
-- **Audio Processing**: Stem separation and audio manipulation  
-- **Face Styling**: Expression transfer and face manipulation
-- **Video Effects**: Frame blending and time remapping
-- **AI Generation**: FLUX, SDXL, and other model workflows
-
----
-
-## 🛠️ Technical Features
-
-### **Memory Optimization**
-- **LatentTypeConversion**: Convert between float16/float32 for memory efficiency
-- **Eden_RepeatLatentBatch**: Efficient latent batch processing
-- Smart tensor management across GPU/CPU
-
-### **Resolution & Aspect Ratio**
-- **WidthHeightPicker**: Smart resolution selection with multiple constraints
-- **IMG_resolution_multiple_of**: Ensure dimensions are multiples of specific values
-- **AspectPadImageForOutpainting**: Professional aspect ratio handling
-
-### **String & Text Processing**
-- **Eden_StringReplace**: Advanced string replacement with regex support
-- **Eden_Regex_Replace**: Powerful regex pattern matching
-- **Eden_RandomPromptFromFile**: Dynamic prompt loading from files
-
----
-
-## 🎯 Use Cases
-
-- **Creative AI Workflows**: Professional image and video generation
-- **Batch Processing**: Automated processing of large image sets
-- **3D Effects**: Depth-based animations and parallax effects  
-- **Face Processing**: Portrait enhancement and manipulation
-- **Content Creation**: Automated caption generation and description
-- **Video Production**: Advanced video effects and frame manipulation
-- **Research & Development**: Experimental AI workflows and testing
-
----
-
-## 📚 Contributing
-
-We welcome contributions! For workflow contributions, check out our production workflows repository: [edenartlab/workflows](https://github.com/edenartlab/workflows)
-
-## 📄 License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
----
-
-<div align="center">
-  <p><strong>🌱 Built with ❤️ by the Eden.art team</strong></p>
-  <p><a href="https://www.eden.art/">Visit Eden.art</a> | <a href="https://github.com/edenartlab/workflows">Production Workflows</a></p>
-</div>
+MIT licensed. 🌱 Made by [Eden.art](https://www.eden.art/).

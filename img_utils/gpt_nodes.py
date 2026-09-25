@@ -1,28 +1,38 @@
 import base64
-import io, os, sys
-from PIL import Image
-import numpy as np
+import io
+import logging
+import os
+import sys
 
-# Lazy-initialized OpenAI client
+import numpy as np
+from PIL import Image
+
+NO_KEY_MESSAGE = "An OpenAI API key is required for {}. Put OPENAI_API_KEY in a .env file in the ComfyUI root (or in eden_comfy_pipelines) and never share it."
+
 _openai_client = None
-_openai_initialized = False
+
+
+def _get_openai_api_key():
+    if not os.getenv("OPENAI_API_KEY"):
+        try:
+            from dotenv import load_dotenv
+        except ImportError:
+            logging.warning("Eden_Comfy_Pipelines: python-dotenv is not installed, reading OPENAI_API_KEY from the environment only.")
+        else:
+            load_dotenv()
+    return os.getenv("OPENAI_API_KEY")
+
 
 def _get_openai_client():
-    global _openai_client, _openai_initialized
-    if not _openai_initialized:
-        _openai_initialized = True
-        try:
-            from openai import OpenAI
-            from dotenv import load_dotenv
-            load_dotenv()
-            api_key = os.getenv("OPENAI_API_KEY")
-            if api_key:
-                _openai_client = OpenAI(api_key=api_key)
-                print("OpenAI API key loaded")
-            else:
-                print("Eden_Comfy_Pipelines: WARNING: Could not find OPENAI_API_KEY in .env, disabling gpt prompt generation.")
-        except Exception:
-            print("Eden_Comfy_Pipelines: WARNING: Could not initialize OpenAI client.")
+    """Shared OpenAI client, created on first use (retried until a key is found)."""
+    global _openai_client
+    if _openai_client is None:
+        api_key = _get_openai_api_key()
+        if not api_key:
+            logging.warning("Eden_Comfy_Pipelines: OPENAI_API_KEY not found in the environment or .env, GPT nodes are disabled.")
+            return None
+        from openai import OpenAI
+        _openai_client = OpenAI(api_key=api_key)
     return _openai_client
 
 
@@ -31,37 +41,34 @@ class Eden_gpt4_node:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "max_token": ("INT", {"default": 100, "min": 1, "max": sys.maxsize}),
+                "max_token": ("INT", {"default": 100, "min": 1, "max": sys.maxsize, "tooltip": "Maximum number of tokens in the reply."}),
                 "model": (["gpt-4o", "gpt-4-turbo"], {"default": "gpt-4o"}),
                 "prompt": ("STRING", {"multiline": True, "default": "Write a poem about ComfyUI"}),
-                "seed": ("INT", {"default": 0, "min": 0, "max": sys.maxsize}),
+                "seed": ("INT", {"default": 0, "min": 0, "max": sys.maxsize, "tooltip": "Change to get a new completion; OpenAI sampling is best-effort deterministic per seed."}),
             }
         }
 
     RETURN_TYPES = ("STRING",)
     FUNCTION = "gpt4_completion"
-    CATEGORY = "Eden 🌱"
+    CATEGORY = "Eden 🌱/AI"
+    DESCRIPTION = "Sends a prompt to an OpenAI chat model and returns the reply. Needs OPENAI_API_KEY; errors are returned as text."
 
     def gpt4_completion(self, max_token, model, prompt, seed):
         try:
             client = _get_openai_client()
             if not client:
-                print("An OpenAI API key is required for GPT node, put a .env file with your key in the comfyui root directory!")
-                return ("An OpenAI API key is required for GPT-4 Vision. Make sure to place a .env file in the root directory of eden_comfy_pipelines with your secret API key. Make sure to never share your API key with anyone.", )
+                return (NO_KEY_MESSAGE.format("the GPT node"),)
 
             response = client.chat.completions.create(
-                    model=model,
-                    seed=seed,
-                    messages=[
-                        {"role": "system", "content": "You are a helpful assistant."},
-                        {"role": "user", "content": prompt},
-                    ],
-                    max_tokens=max_token
+                model=model,
+                seed=seed,
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant."},
+                    {"role": "user", "content": prompt},
+                ],
+                max_tokens=max_token
             )
-
-            gpt_completion = response.choices[0].message.content
-            print(f"GPT4 completion:\n{gpt_completion}")
-            return (gpt_completion,)
+            return (response.choices[0].message.content,)
         except Exception as e:
             return (f"Error: {str(e)}",)
 
@@ -73,46 +80,48 @@ class Eden_GPTPromptEnhancer:
             "required": {
                 "basic_prompt": ("STRING", {
                     "multiline": True,
-                    "default": "A beautiful landscape"
+                    "default": "A beautiful landscape",
+                    "tooltip": "The prompt to enhance."
                 }),
                 "enhancement_instructions": ("STRING", {
                     "multiline": True,
-                    "default": "Augment this visual description by adding specific details about lighting, scene elements, composition, and artistic style. Make it more descriptive and specific. Be bold and creative! Limit the final prompt to 100 words."
+                    "default": "Augment this visual description by adding specific details about lighting, scene elements, composition, and artistic style. Make it more descriptive and specific. Be bold and creative! Limit the final prompt to 100 words.",
+                    "tooltip": "How GPT should rewrite the prompt."
                 }),
-                "max_token": ("INT", {"default": 500, "min": 1, "max": sys.maxsize}),
+                "max_token": ("INT", {"default": 500, "min": 1, "max": sys.maxsize, "tooltip": "Maximum number of tokens in the reply."}),
                 "model": ([
                     "gpt-4o",
                     "gpt-4o-mini",
                     "gpt-4-turbo",
                     "gpt-3.5-turbo",
                 ], {"default": "gpt-4o"}),
-                "seed": ("INT", {"default": 0, "min": 0, "max": sys.maxsize}),
+                "seed": ("INT", {"default": 0, "min": 0, "max": sys.maxsize, "tooltip": "Change to get a new enhancement."}),
             },
             "optional": {
                 "temperature": ("FLOAT", {
                     "default": 0.7,
                     "min": 0.0,
                     "max": 2.0,
-                    "step": 0.1
+                    "step": 0.1,
+                    "tooltip": "Higher is more creative."
                 }),
             }
         }
 
     RETURN_TYPES = ("STRING",)
     FUNCTION = "enhance_prompt"
-    CATEGORY = "Eden 🌱"
+    CATEGORY = "Eden 🌱/AI"
+    DESCRIPTION = "Rewrites a prompt with GPT following your enhancement instructions. Needs OPENAI_API_KEY; errors are returned as text."
 
     def enhance_prompt(self, basic_prompt, enhancement_instructions, max_token, model, seed, temperature=0.7):
         try:
             client = _get_openai_client()
             if not client:
-                return ("An OpenAI API key is required for GPT Prompt Enhancer. Make sure to place a .env file in the root directory with your OpenAI API key.",)
+                return (NO_KEY_MESSAGE.format("GPT Prompt Enhancer"),)
 
-            # Construct the system message to guide GPT's behavior
-            system_message = """You are a prompt engineering expert. Your task is to enhance and improve the given prompt according to the provided instructions. 
+            system_message = """You are a prompt engineering expert. Your task is to enhance and improve the given prompt according to the provided instructions.
             Keep the enhanced prompt focused and coherent. Maintain the original intent while adding valuable details and improvements."""
 
-            # Construct the user message combining the prompt and instructions
             user_message = f"""Original prompt: {basic_prompt}
 
 Enhancement instructions: {enhancement_instructions}
@@ -129,10 +138,7 @@ Please enhance this prompt according to the instructions. Provide only the enhan
                 ],
                 max_tokens=max_token
             )
-
-            enhanced_prompt = response.choices[0].message.content
-            return (enhanced_prompt,)
-
+            return (response.choices[0].message.content,)
         except Exception as e:
             return (f"Error in prompt enhancement: {str(e)}",)
 
@@ -143,70 +149,52 @@ class ImageDescriptionNode:
         return {
             "required": {
                 "image": ("IMAGE",),
-                "max_token": ("INT", {"default": 100, "min": 1, "max": sys.maxsize}),
-                "endpoint": ("STRING", {"multiline": False, "default": "https://api.openai.com/v1"}),
-                "model": (["gpt-4-vision Low", "gpt-4-vision High"], {"default": "gpt-4-vision Low"}),
+                "max_token": ("INT", {"default": 100, "min": 1, "max": sys.maxsize, "tooltip": "Maximum number of tokens in the reply."}),
+                "endpoint": ("STRING", {"multiline": False, "default": "https://api.openai.com/v1", "tooltip": "OpenAI-compatible API base URL."}),
+                "model": (["gpt-4-vision Low", "gpt-4-vision High"], {"default": "gpt-4-vision Low", "tooltip": "Image detail level sent to gpt-4o (low is cheaper)."}),
                 "prompt": ("STRING", {"multiline": True, "default": "Consicely describe the content of the images. Respond with a single description per line (ending with a period and a newline character)."}),
             }
         }
 
     RETURN_TYPES = ("STRING",)
     FUNCTION = "describe_image"
-    CATEGORY = "Eden 🌱"
-
-    def image_to_base64(self, image):
-        buffered = io.BytesIO()
-        image.save(buffered, format="PNG")
-        img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
-        return img_str
-
-    def set_system_message(self, sysmsg):
-        return [{
-            "role": "system",
-            "content": sysmsg
-        }]
+    CATEGORY = "Eden 🌱/AI"
+    DESCRIPTION = "Describes the first image of a batch with GPT-4o vision. Needs OPENAI_API_KEY; errors are returned as text."
 
     def describe_image(self, image, max_token, endpoint, model, prompt):
         try:
+            api_key = _get_openai_api_key()
+            if not api_key:
+                return (NO_KEY_MESSAGE.format("GPT-4 Vision"),)
+
             from openai import OpenAI
-            image = image[0]
-            i = 255. * image.cpu().numpy()
-            img = Image.fromarray(np.clip(i, 0, 255).astype(np.uint8))
-
-            api_key = os.getenv("OPENAI_API_KEY")
-            if not api_key:
-                # Try to init the client which also calls load_dotenv
-                _get_openai_client()
-                api_key = os.getenv("OPENAI_API_KEY")
-            if not api_key:
-                return ("An OpenAI API key is required for GPT-4 Vision. Make sure to place a .env file in the root directory of eden_comfy_pipelines with your secret API key.",)
-
             client = OpenAI(api_key=api_key, base_url=endpoint)
-            processed_image = self.image_to_base64(img)
+
+            img = Image.fromarray(np.clip(255. * image[0].cpu().numpy(), 0, 255).astype(np.uint8))
+            buffered = io.BytesIO()
+            img.save(buffered, format="PNG")
+            b64_image = base64.b64encode(buffered.getvalue()).decode("utf-8")
             detail = "low" if model == "gpt-4-vision Low" else "high"
-            system_message = self.set_system_message("You are a helpful assistant.")
+
             response = client.chat.completions.create(
                 model="gpt-4o",
-                messages=system_message + [
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant."},
                     {
                         "role": "user",
                         "content": [{
                             "type": "image_url",
-                            "image_url": {"url": f"data:image/png;base64,{processed_image}", "detail": detail}
+                            "image_url": {"url": f"data:image/png;base64,{b64_image}", "detail": detail}
                         }]
                     },
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
+                    {"role": "user", "content": prompt},
                 ],
                 max_tokens=max_token
             )
-            description = response.choices[0].message.content
-            print(f"GPT4-v Description:\n{description}")
-            return (description,)
+            return (response.choices[0].message.content,)
         except Exception as e:
             return (f"Error: {str(e)}",)
+
 
 class Eden_GPTStructuredOutput:
     @classmethod
@@ -223,35 +211,37 @@ class Eden_GPTStructuredOutput:
                 }),
                 "json_schema": ("STRING", {
                     "multiline": True,
-                    "default": '{\n  "type": "object",\n  "properties": {\n    "title": {"type": "string"},\n    "description": {"type": "string"},\n    "key_points": {"type": "array", "items": {"type": "string"}}\n  },\n  "required": ["title", "description", "key_points"]\n}'
+                    "default": '{\n  "type": "object",\n  "properties": {\n    "title": {"type": "string"},\n    "description": {"type": "string"},\n    "key_points": {"type": "array", "items": {"type": "string"}}\n  },\n  "required": ["title", "description", "key_points"]\n}',
+                    "tooltip": "JSON schema the reply must follow (included in the system prompt)."
                 }),
-                "max_tokens": ("INT", {"default": 1000, "min": 1, "max": sys.maxsize}),
+                "max_tokens": ("INT", {"default": 1000, "min": 1, "max": sys.maxsize, "tooltip": "Maximum number of tokens in the reply."}),
                 "model": (["gpt-4o", "gpt-4-turbo"], {"default": "gpt-4o"}),
-                "seed": ("INT", {"default": 0, "min": 0, "max": sys.maxsize}),
+                "seed": ("INT", {"default": 0, "min": 0, "max": sys.maxsize, "tooltip": "Change to get a new response."}),
             },
             "optional": {
                 "temperature": ("FLOAT", {
                     "default": 0.7,
                     "min": 0.0,
                     "max": 2.0,
-                    "step": 0.1
+                    "step": 0.1,
+                    "tooltip": "Higher is more creative."
                 }),
             }
         }
 
     RETURN_TYPES = ("STRING",)
     FUNCTION = "generate_structured_output"
-    CATEGORY = "Eden 🌱"
+    CATEGORY = "Eden 🌱/AI"
+    DESCRIPTION = "Asks GPT for a JSON object following the given schema and returns it as a string. Needs OPENAI_API_KEY; errors are returned as text."
 
     def generate_structured_output(self, prompt, system_prompt, json_schema, max_tokens, model, seed, temperature=0.7):
         try:
             client = _get_openai_client()
             if not client:
-                return ("An OpenAI API key is required for GPT Structured Output. Make sure to place a .env file in the root directory with your OpenAI API key.",)
+                return (NO_KEY_MESSAGE.format("GPT Structured Output"),)
 
-            # Construct the system message to guide GPT's behavior
             system_message = f"""{system_prompt}
-            
+
 You must respond with a valid JSON object that strictly follows this schema:
 {json_schema}
 
@@ -268,9 +258,6 @@ Do not include any explanations or text outside the JSON object."""
                 max_tokens=max_tokens,
                 response_format={"type": "json_object"}
             )
-
-            structured_output = response.choices[0].message.content
-            return (structured_output,)
-            
+            return (response.choices[0].message.content,)
         except Exception as e:
             return (f"Error in structured output generation: {str(e)}",)

@@ -1,11 +1,9 @@
-clip-interrogator==0.6.0
-open_clip_torch==2.26.1
-py7zr==0.22.0
+open_clip_torch>=2.26.1
+transformers
 openai>=1.57.2
 python-dotenv
 scikit-learn
-transformers
+scipy
 matplotlib
-scikit-image
 opencv-python
-
+py7zr

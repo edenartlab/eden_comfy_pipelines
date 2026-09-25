@@ -1,29 +1,34 @@
 """
-
-This code was heavily inspired by
+Logic nodes, heavily inspired by
 https://github.com/theUpsider/ComfyUI-Logic/tree/fb8897351f715ea75eebf52e74515b6d07c693b8
-
 """
 
-import sys 
+import sys
 
-class AnyType(str):
-    def __ne__(self, __value: object) -> bool:
+import torch
+
+
+class AlwaysEqualProxy(str):
+    """Wildcard type: compares equal to every other type so any link can connect."""
+    def __eq__(self, _):
+        return True
+
+    def __ne__(self, _):
         return False
 
-any_typ = AnyType("*")
 
 class Eden_String:
     @classmethod
     def INPUT_TYPES(s):
         return {
-            "required": {"value": ("STRING", {"default": "", "multiline": True})},
+            "required": {"value": ("STRING", {"default": "", "multiline": True, "tooltip": "Text to output."})},
         }
 
     RETURN_TYPES = ("STRING",)
     RETURN_NAMES = ("STRING",)
     FUNCTION = "execute"
-    CATEGORY = "Eden 🌱/Logic"
+    CATEGORY = "Eden 🌱/Text"
+    DESCRIPTION = "Outputs a (multiline) string constant."
 
     def execute(self, value):
         return (value,)
@@ -33,13 +38,14 @@ class Eden_Int:
     @classmethod
     def INPUT_TYPES(s):
         return {
-            "required": {"value": ("INT", {"min": -sys.maxsize, "max": sys.maxsize, "default": 0})},
+            "required": {"value": ("INT", {"min": -sys.maxsize, "max": sys.maxsize, "default": 0, "tooltip": "Integer to output."})},
         }
 
     RETURN_TYPES = ("INT",)
     RETURN_NAMES = ("INT",)
     FUNCTION = "execute"
     CATEGORY = "Eden 🌱/Logic"
+    DESCRIPTION = "Outputs an integer constant."
 
     def execute(self, value):
         return (value,)
@@ -49,13 +55,14 @@ class Eden_Float:
     @classmethod
     def INPUT_TYPES(s):
         return {
-            "required": {"value": ("FLOAT", {"default": 0, "step": 0.01})},
+            "required": {"value": ("FLOAT", {"default": 0, "step": 0.01, "tooltip": "Float to output."})},
         }
 
     RETURN_TYPES = ("FLOAT",)
     RETURN_NAMES = ("FLOAT",)
     FUNCTION = "execute"
     CATEGORY = "Eden 🌱/Logic"
+    DESCRIPTION = "Outputs a float constant."
 
     def execute(self, value):
         return (value,)
@@ -65,13 +72,14 @@ class Eden_Bool:
     @classmethod
     def INPUT_TYPES(s):
         return {
-            "required": {"value": ("BOOLEAN", {"default": False})},
+            "required": {"value": ("BOOLEAN", {"default": False, "tooltip": "Boolean to output."})},
         }
 
     RETURN_TYPES = ("BOOLEAN",)
     RETURN_NAMES = ("BOOLEAN",)
     FUNCTION = "execute"
     CATEGORY = "Eden 🌱/Logic"
+    DESCRIPTION = "Outputs a boolean constant."
 
     def execute(self, value):
         return (value,)
@@ -86,23 +94,15 @@ COMPARE_FUNCTIONS = {
     "a >= b": lambda a, b: a >= b,
 }
 
-class AlwaysEqualProxy(str):
-    def __eq__(self, _):
-        return True
-
-    def __ne__(self, _):
-        return False
-
 
 class Eden_Compare:
     @classmethod
     def INPUT_TYPES(s):
-        compare_functions = list(COMPARE_FUNCTIONS.keys())
         return {
             "required": {
-                "a": (AlwaysEqualProxy("*"), {"default": 0}),
-                "b": (AlwaysEqualProxy("*"), {"default": 0}),
-                "comparison": (compare_functions, {"default": "a == b"}),
+                "a": (AlwaysEqualProxy("*"), {"default": 0, "tooltip": "Left operand (any type)."}),
+                "b": (AlwaysEqualProxy("*"), {"default": 0, "tooltip": "Right operand (any type)."}),
+                "comparison": (list(COMPARE_FUNCTIONS), {"default": "a == b", "tooltip": "Comparison to apply."}),
             },
         }
 
@@ -110,13 +110,13 @@ class Eden_Compare:
     RETURN_NAMES = ("boolean",)
     FUNCTION = "compare"
     CATEGORY = "Eden 🌱/Logic"
+    DESCRIPTION = "Compares two values of any type and outputs the boolean result."
 
     def compare(self, a, b, comparison):
         return (COMPARE_FUNCTIONS[comparison](a, b),)
 
 
-from typing import Any, Callable, Mapping
-BOOL_BINARY_OPERATIONS: Mapping[str, Callable[[bool, bool], bool]] = {
+BOOL_BINARY_OPERATIONS = {
     "Nor": lambda a, b: not (a or b),
     "Xor": lambda a, b: a ^ b,
     "Nand": lambda a, b: not (a and b),
@@ -127,12 +127,13 @@ BOOL_BINARY_OPERATIONS: Mapping[str, Callable[[bool, bool], bool]] = {
     "Neq": lambda a, b: a != b,
 }
 
+
 class Eden_BoolBinaryOperation:
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "op": (list(BOOL_BINARY_OPERATIONS.keys()),),
+                "op": (list(BOOL_BINARY_OPERATIONS),),
                 "a": ("BOOLEAN", {"default": False}),
                 "b": ("BOOLEAN", {"default": False}),
             }
@@ -141,24 +142,20 @@ class Eden_BoolBinaryOperation:
     RETURN_TYPES = ("BOOLEAN",)
     FUNCTION = "op"
     CATEGORY = "Eden 🌱/Logic"
+    DESCRIPTION = "Applies a binary boolean operation (And, Or, Xor, Nand, ...) to two booleans."
 
-    def op(self, op: str, a: bool, b: bool) -> tuple[bool]:
+    def op(self, op, a, b):
         return (BOOL_BINARY_OPERATIONS[op](a, b),)
 
 
 class Eden_IfExecute:
-    """
-    This node executes IF_TRUE if ANY is True, otherwise it executes IF_FALSE.
-    ANY can be any input, IF_TRUE and IF_FALSE can be any output.
-    """
-
     @classmethod
     def INPUT_TYPES(s):
         return {
             "required": {
-                "ANY": (AlwaysEqualProxy("*"),),
-                "IF_TRUE": (AlwaysEqualProxy("*"),),
-                "IF_FALSE": (AlwaysEqualProxy("*"),),
+                "ANY": (AlwaysEqualProxy("*"), {"tooltip": "Condition: truthy (non-zero, non-empty, True) picks IF_TRUE."}),
+                "IF_TRUE": (AlwaysEqualProxy("*"), {"lazy": True, "tooltip": "Returned (and computed) only when ANY is truthy."}),
+                "IF_FALSE": (AlwaysEqualProxy("*"), {"lazy": True, "tooltip": "Returned (and computed) only when ANY is falsy."}),
             },
         }
 
@@ -166,61 +163,43 @@ class Eden_IfExecute:
     RETURN_NAMES = ("?",)
     FUNCTION = "return_based_on_bool"
     CATEGORY = "Eden 🌱/Logic"
-    
+    DESCRIPTION = "Outputs IF_TRUE when ANY is truthy (non-zero, non-empty, True), otherwise IF_FALSE. Only the chosen branch is computed."
+
+    def check_lazy_status(self, ANY, IF_TRUE=None, IF_FALSE=None):
+        return ["IF_TRUE"] if ANY else ["IF_FALSE"]
+
     def return_based_on_bool(self, ANY, IF_TRUE, IF_FALSE):
-        result_str = "True" if ANY else "False"
-        print(f"Evaluating {type(ANY)}, *** {ANY} *** as {result_str}")
         return (IF_TRUE if ANY else IF_FALSE,)
 
 
-import torch
-import random
-
 class Eden_RandomNumberSampler:
-    """Node that generates a random number from a uniform distribution with configurable min/max values"""
-    
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
-                "min_value": ("FLOAT", {"default": 0.00, "min": -1000.00, "max": 1000.00, "step": 0.01}),
-                "max_value": ("FLOAT", {"default": 1.00, "min": -1000.00, "max": 1000.00, "step": 0.01}),
+                "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff, "tooltip": "Same seed gives the same number."}),
+                "min_value": ("FLOAT", {"default": 0.00, "min": -1000.00, "max": 1000.00, "step": 0.01, "tooltip": "Lower bound (swapped with max_value if larger)."}),
+                "max_value": ("FLOAT", {"default": 1.00, "min": -1000.00, "max": 1000.00, "step": 0.01, "tooltip": "Upper bound."}),
             }
         }
 
     FUNCTION = "sample_random_number"
     RETURN_TYPES = ("INT", "FLOAT", "STRING")
     RETURN_NAMES = ("sampled_int", "sampled_float", "sampled_string")
-    CATEGORY = "Eden 🌱/Logic"
-    DESCRIPTION = "Samples a random number from a uniform distribution between min_value and max_value"
-    OUTPUT_NODE = True  # Enable UI updates
+    OUTPUT_TOOLTIPS = ("The sampled value rounded to an integer.", "The sampled value, rounded to 2 decimals.", "The sampled value formatted with 2 decimals.")
+    CATEGORY = "Eden 🌱/Random"
+    DESCRIPTION = "Samples a number uniformly between min_value and max_value (2 decimals) and shows it on the node."
+    OUTPUT_NODE = True
 
     def sample_random_number(self, seed, min_value, max_value):
-        # Set seeds for reproducibility
-        torch.manual_seed(seed)
-        random.seed(seed)
-        
-        # Ensure min_value is not greater than max_value
         if min_value > max_value:
             min_value, max_value = max_value, min_value
-        
-        # Generate random float between min and max
-        sampled_float = min_value + (max_value - min_value) * torch.rand(1).item()
-        
-        # Round to 2 decimal places for consistency
-        sampled_float = round(sampled_float, 2)
-        
-        # Convert to integer (rounded)
-        sampled_int = int(round(sampled_float))
-        
-        # Create string representation with 2 decimal places
+
+        generator = torch.Generator().manual_seed(seed)
+        sampled_float = round(min_value + (max_value - min_value) * torch.rand(1, generator=generator).item(), 2)
         sampled_string = f"{sampled_float:.2f}"
-        
-        # Return the sampled values along with special UI update
+
         return {
-            "ui": {
-                "random_number": [f"{sampled_float:.2f}"]
-            }, 
-            "result": (sampled_int, sampled_float, sampled_string)
+            "ui": {"random_number": [sampled_string]},
+            "result": (int(round(sampled_float)), sampled_float, sampled_string),
         }
