@@ -219,25 +219,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "OrganicFillNode": "Organic Fill Mask Animation (Deprecated)",
 }
 
-# Local-only experimental nodes, not shipped with the repo.
-try:
-    from random_conditioning.random_c_utils import (
-        Eden_get_random_file_from_folder, Eden_Inspect_Conditioning, Eden_Load_Legacy_Conditioning,
-        Eden_LoadConditioning, Eden_RandomConditioningSamplerNode, Eden_SaveConditioning,
-    )
-    NODE_CLASS_MAPPINGS.update({
-        "SaveConditioning": Eden_SaveConditioning,
-        "LoadConditioning": Eden_LoadConditioning,
-        "Inspect_Conditioning": Eden_Inspect_Conditioning,
-        "Eden_RandomConditioningSamplerNode": Eden_RandomConditioningSamplerNode,
-        "Eden_Load_Legacy_Conditioning": Eden_Load_Legacy_Conditioning,
-        "Eden_get_random_file_from_folder": Eden_get_random_file_from_folder,
-    })
-except ImportError:
-    pass
-
-
-
 def _route_legacy_save_image_advanced(json_data):
     # Core ComfyUI now owns the "SaveImageAdvanced" id; send old Eden API prompts to the renamed node.
     for node in json_data.get("prompt", {}).values():
