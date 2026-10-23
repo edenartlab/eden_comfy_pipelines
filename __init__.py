@@ -34,6 +34,7 @@ from logic.logic_nodes import (
     Eden_Bool, Eden_BoolBinaryOperation, Eden_Compare, Eden_Float, Eden_IfExecute, Eden_Int, Eden_RandomNumberSampler,
     Eden_String,
 )
+from lora_utils.power_lora_loader import Eden_PowerLoraLoader
 from prompt_utils.nodes import Eden_PromptFromImageFolder
 from video_utils.fill_image_mask import OrganicFillNode as OrganicFillNode_Deprecated
 from video_utils.gradient_mask_video import KeyframeBlender, MaskedRegionVideoExport
@@ -121,6 +122,7 @@ NODE_CLASS_MAPPINGS = {
     "Eden_GradientBorderMask": Eden_GradientBorderMask,
     "Eden_OrganicFillRandom": Eden_OrganicFillRandom,
     "Eden_PromptFromImageFolder": Eden_PromptFromImageFolder,
+    "Eden_PowerLoraLoader": Eden_PowerLoraLoader,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -176,6 +178,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "Eden_SaveImageAdvanced": "Save Image Advanced (Eden) 💾",
     "Eden_AllMediaLoader": "All Media Loader 📁",
     "Eden_Save_Param_Dict": "Save Param Dict 📁",
+    "Eden_PowerLoraLoader": "Power Lora Loader (Eden) 🎲",
     # Latent
     "LatentTypeConversion": "Latent Type Conversion (fp16/fp32)",
     "Eden_RepeatLatentBatch": "Repeat Latent Batch",
@@ -196,7 +199,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "Eden_StringHash": "String Hash",
     "Eden_StringReplace": "String Replace",
     "Eden_Regex_Replace": "Regex Replace",
-    "Eden_RandomPromptFromFile": "Prompt From File (by Seed) 🎲",
+    "Eden_RandomPromptFromFile": "Prompt From File 🎲",
     "Eden_PromptFromImageFolder": "Prompt from Image Folder 🎲",
     # Random
     "Eden_Seed": "Seed 🎲",

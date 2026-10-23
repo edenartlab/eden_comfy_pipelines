@@ -101,6 +101,7 @@ Point it at a folder of ComfyUI renders and it returns the positive prompt that 
 - **All Media Loader**: one node for an image, a folder, a glob pattern, a video (mp4/mov/webm/mkv/avi), a GIF or a zip/tar/7z of images, with frame-rate subsampling and a max resolution.
 - **Load Random Image(s)**: a seeded batch from a folder.
 - **Save Image Advanced (Eden)**: adds a timestamp and a sidecar JSON of the workflow.
+- **Power Lora Loader (Eden)**: any number of LoRAs in one node (adapted from rgthree's). Each LoRA has a fixed strength or a seeded 🎲 min–max range, its own strength output, and a `settings` JSON of every applied strength, ready for **Save Param Dict** to log datasets.
 - Folder loaders re-run when the files in the folder change, and stay cached otherwise.
 
 <img src="assets/screenshots/loaders.jpg" alt="Loader and saver nodes" width="100%">
@@ -172,7 +173,7 @@ The name in `code` is the node id stored in saved workflows.
 </details>
 
 <details>
-<summary><b>📁 Loaders & savers</b> (10)</summary>
+<summary><b>📁 Loaders & savers</b> (11)</summary>
 
 | Node | What it does |
 |---|---|
@@ -182,10 +183,11 @@ The name in `code` is the node id stored in saved workflows.
 | **Load Images by Filename** `LoadImagesByFilename` | Loads images from a list of paths |
 | **Get Random File 🎲** `GetRandomFile` | A seeded random file path |
 | **Load Prefixed Images** `Get_Prefixed_Imgs` | Latest images whose name contains a prefix |
-| **Save Image Advanced (Eden) 💾** `Eden_SaveImageAdvanced` | PNG with a timestamp and a workflow JSON |
+| **Save Image Advanced (Eden) 💾** `Eden_SaveImageAdvanced` | PNG with a timestamp and a sidecar JSON; embeds a connected Save Param Dict in the PNG |
 | **VAE Decode to Folder** `VAEDecode_to_folder` | Decodes latents straight to disk, frame by frame |
 | **Masked Region Video Export (Alpha)** `MaskedRegionVideoExport` | Transparent webm/ProRes video (needs `ffmpeg`) |
-| **Save Param Dict 📁** `Eden_Save_Param_Dict` | Saves up to 10 key/value pairs as JSON |
+| **Save Param Dict 📁** `Eden_Save_Param_Dict` | Stacks any number of values and dicts (auto-growing inputs) into one JSON; feed it to Save Image Advanced (Eden) to name it after the image |
+| **Power Lora Loader (Eden) 🎲** `Eden_PowerLoraLoader` | Many LoRAs, each with a fixed or seeded random strength; strength outputs + settings JSON |
 </details>
 
 <details>
@@ -203,7 +205,7 @@ The name in `code` is the node id stored in saved workflows.
 | **Random Number Sampler 🎲** `Eden_RandomNumberSampler` | A seeded number, shown on the node |
 | **Random Bool 🎲** `Eden_randbool` | True with a given probability |
 | **Random Filepath Sampler 🎲** `Eden_RandomFilepathSampler` | A seeded file, with filters |
-| **Prompt From File (by Seed) 🎲** `Eden_RandomPromptFromFile` | Line `seed % n` of a text file |
+| **Prompt From File 🎲** `Eden_RandomPromptFromFile` | Line of a text file: sequential (`index % n`) or random (seeded by `index`) |
 | **Seed 🎲** `Eden_Seed` | A seed as INT and STRING |
 | **Prompt from Image Folder 🎲** `Eden_PromptFromImageFolder` | Recovers the prompt of a render in a folder |
 | **String Replace** `Eden_StringReplace` | Plain text replacement |

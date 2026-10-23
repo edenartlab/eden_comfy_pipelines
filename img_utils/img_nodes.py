@@ -185,7 +185,7 @@ class WidthHeightPicker:
 
 
 class SaveImageAdvanced:
-    DESCRIPTION = "Saves images as PNG to the output folder, optionally with a timestamp in the filename and a sidecar JSON of the workflow metadata."
+    DESCRIPTION = "Saves images as PNG to the output folder, optionally with a timestamp in the filename and a sidecar JSON. Connect a Save Param Dict node to `params` to embed that dict in each PNG and save it as <image name>.json."
 
     def __init__(self):
         self.output_dir = folder_paths.get_output_directory()
@@ -197,8 +197,9 @@ class SaveImageAdvanced:
                     {"images": ("IMAGE", {"tooltip": "Images to save."}),
                      "filename_prefix": ("STRING", {"default": "ComfyUI", "tooltip": "Filename prefix; may include a subfolder (e.g. 'renders/shot')."}),
                      "add_timestamp": ("BOOLEAN", {"default": True, "tooltip": "Insert a YYYYMMDD-HHMMSS timestamp into each filename."}),
-                     "save_metadata_json": ("BOOLEAN", {"default": True, "tooltip": "Also write the prompt/workflow metadata as a .json next to each PNG."}),
+                     "save_metadata_json": ("BOOLEAN", {"default": True, "tooltip": "Also write the prompt/workflow metadata as a .json next to each PNG. Ignored when `params` is connected: the sidecar then holds the params."}),
                      },
+                "optional": {"params": ("EDEN_PARAMS", {"tooltip": "Dict from Save Param Dict: embedded in each PNG as the `params` text chunk and saved as <image name>.json."})},
                 "hidden": {"prompt": "PROMPT", "extra_pnginfo": "EXTRA_PNGINFO"},
                 }
 
@@ -207,7 +208,7 @@ class SaveImageAdvanced:
     OUTPUT_NODE = True
     CATEGORY = "Eden 🌱/Loaders"
 
-    def save_images(self, images, add_timestamp, save_metadata_json, filename_prefix="ComfyUI", prompt=None, extra_pnginfo=None):
+    def save_images(self, images, add_timestamp, save_metadata_json, filename_prefix="ComfyUI", params=None, prompt=None, extra_pnginfo=None):
         full_output_folder, filename, counter, subfolder, filename_prefix = folder_paths.get_save_image_path(filename_prefix, self.output_dir, images[0].shape[1], images[0].shape[0])
         results = list()
 
@@ -216,9 +217,10 @@ class SaveImageAdvanced:
 
         for image in images:
             img = Image.fromarray(np.clip(255. * image.cpu().numpy(), 0, 255).astype(np.uint8))
-            metadata = None
+            metadata = PngInfo()
+            if params is not None:
+                metadata.add_text("params", json.dumps(params, ensure_ascii=False))
             if not args.disable_metadata:
-                metadata = PngInfo()
                 metadata_dict = {}
                 if prompt is not None:
                     metadata.add_text("prompt", json.dumps(prompt))
@@ -240,8 +242,11 @@ class SaveImageAdvanced:
                 "type": "output"
             })
 
-            if save_metadata_json and not args.disable_metadata:
-                json_path = os.path.join(full_output_folder, file.replace(".png", ".json"))
+            json_path = os.path.join(full_output_folder, file.replace(".png", ".json"))
+            if params is not None:
+                with open(json_path, "w", encoding="utf-8") as f:
+                    json.dump(params, f, indent=2, ensure_ascii=False)
+            elif save_metadata_json and not args.disable_metadata:
                 with open(json_path, "w") as f:
                     json.dump(metadata_dict, f, indent=4)
 

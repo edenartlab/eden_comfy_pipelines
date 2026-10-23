@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import logging
 import os
+import random
 import re
 
+import nodes
 from comfy_api.latest import io
 
-from .comfy_prompt_reader import ExtractedPrompt, extract_prompt
+from .comfy_prompt_reader import ExtractedPrompt, default_is_output_node, explain_missing_prompt, extract_prompt
 
-# path -> (mtime_ns, size, result); re-parsed only when the file changes on disk.
-_PROMPT_CACHE: dict[str, tuple[int, int, ExtractedPrompt | None]] = {}
+# path -> (mtime_ns, size, result, why_no_prompt); re-parsed only when the file changes on disk.
+_PROMPT_CACHE: dict[str, tuple[int, int, ExtractedPrompt | None, str]] = {}
 
 ORDER_OPTIONS = ["name", "date modified (oldest first)", "date modified (newest first)"]
 
@@ -52,16 +55,26 @@ def _list_files(folder: str, include_subfolders: bool, extensions: str,
     return files
 
 
-def _cached_prompt(path: str, mtime_ns: int, size: int) -> ExtractedPrompt | None:
+def _is_output_node(class_type: str) -> bool:
+    """Ask ComfyUI whether a class is an output node; guess by name for classes not installed here."""
+    node_class = nodes.NODE_CLASS_MAPPINGS.get(class_type)
+    if node_class is None:
+        return default_is_output_node(class_type)
+    return bool(getattr(node_class, "OUTPUT_NODE", False))
+
+
+def _cached_prompt(path: str, mtime_ns: int, size: int) -> tuple[ExtractedPrompt | None, str]:
+    """(result, reason there is no prompt) for a file."""
     cached = _PROMPT_CACHE.get(path)
     if cached and cached[:2] == (mtime_ns, size):
-        return cached[2]
+        return cached[2:]
     try:
-        result = extract_prompt(path)
-    except Exception:  # unreadable / truncated file: treat as "no prompt"
-        result = None
-    _PROMPT_CACHE[path] = (mtime_ns, size, result)
-    return result
+        result = extract_prompt(path, _is_output_node)
+        reason = "" if result else explain_missing_prompt(path, _is_output_node)
+    except Exception as e:  # unreadable / truncated file: treat as "no prompt"
+        result, reason = None, f"could not read file ({type(e).__name__}: {e})"
+    _PROMPT_CACHE[path] = (mtime_ns, size, result, reason)
+    return result, reason
 
 
 class Eden_PromptFromImageFolder(io.ComfyNode):
@@ -74,7 +87,8 @@ class Eden_PromptFromImageFolder(io.ComfyNode):
             description=(
                 "Picks an image from a folder of ComfyUI renders and returns the prompt that "
                 "generated it, found by tracing the embedded graph from the sampler back to its "
-                "text encoder (Note nodes and negative prompts are ignored).\n\n"
+                "text encoder. Only nodes that actually ran (upstream of a Save/Preview node) count; "
+                "Notes, negative prompts, file paths and texts under 50 characters are never returned.\n\n"
                 "Use the control widget under `seed` to choose the behaviour:\n"
                 "• randomize: a random image every run\n"
                 "• increment: walk the folder one image at a time\n"
@@ -97,7 +111,7 @@ class Eden_PromptFromImageFolder(io.ComfyNode):
                 io.String.Input("name_filter", default="", optional=True, advanced=True,
                                 tooltip="Only use files whose name contains this text (case-insensitive)."),
                 io.Boolean.Input("skip_files_without_prompt", default=True, optional=True, advanced=True,
-                                 tooltip="If the picked file has no readable prompt, move on to the next "
+                                 tooltip="If the picked file has no readable prompt, try another random "
                                          "file instead of raising an error."),
                 io.String.Input("fallback_prompt", default="", multiline=True, optional=True, advanced=True,
                                 tooltip="Returned when no file in the folder has a prompt. "
@@ -133,17 +147,24 @@ class Eden_PromptFromImageFolder(io.ComfyNode):
             raise ValueError(f"Prompt from Image Folder: no {extensions} files in {folder!r}{hint}")
 
         start = seed % len(files)
-        attempts = len(files) if skip_files_without_prompt else 1
-        for offset in range(attempts):
-            index = (start + offset) % len(files)
+        candidates = [start]
+        if skip_files_without_prompt:
+            # Retry in a seeded random order: walking to the next file would hand every
+            # prompt-less file's picks to whichever file follows it, skewing the sampling.
+            rest = [i for i in range(len(files)) if i != start]
+            random.Random(seed).shuffle(rest)
+            candidates += rest
+        for index in candidates:
             path, mtime_ns, size = files[index]
-            result = _cached_prompt(path, mtime_ns, size)
-            if result and result.positive:
+            result, reason = _cached_prompt(path, mtime_ns, size)
+            if result:
                 return io.NodeOutput(result.positive, result.negative, path, index, len(files))
+            if skip_files_without_prompt:
+                logging.warning(f"Prompt from Image Folder: skipping file {index + 1}/{len(files)} {path!r}: {reason}")
 
         if fallback_prompt:
             return io.NodeOutput(fallback_prompt, "", "", start, len(files))
         if skip_files_without_prompt:
             raise ValueError(f"Prompt from Image Folder: none of the {len(files)} files in "
                              f"{folder!r} contain a ComfyUI prompt")
-        raise ValueError(f"Prompt from Image Folder: no ComfyUI prompt found in {files[start][0]!r}")
+        raise ValueError(f"Prompt from Image Folder: no ComfyUI prompt found in {files[start][0]!r}: {reason}")

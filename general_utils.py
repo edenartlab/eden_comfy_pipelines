@@ -20,6 +20,7 @@ from PIL import Image, ImageOps, ImageSequence
 import comfy.samplers
 import comfy.utils
 import folder_paths
+from nodes import NODE_CLASS_MAPPINGS
 
 logger = logging.getLogger(__name__)
 
@@ -409,20 +410,21 @@ class Eden_RandomPromptFromFile:
         return {
             "required": {
                 "file_path": ("STRING", {"default": "prompts.txt", "tooltip": "Text file with one prompt per line (empty lines are ignored)."}),
-                "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff, "tooltip": "Picks line number seed % line_count."}),
+                "index": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff, "control_after_generate": True, "tooltip": "sequential: takes line index % line_count (set control_after_generate to 'increment' to walk through the file). random: seed for the random pick."}),
+                "mode": (["sequential", "random"], {"default": "sequential", "tooltip": "random: a random line, seeded by index. sequential: line index % line_count, wrapping around at the end."}),
             }
         }
 
     RETURN_TYPES = ("STRING",)
-    FUNCTION = "get_random_prompt"
+    FUNCTION = "get_prompt"
     CATEGORY = "Eden 🌱/Random"
-    DESCRIPTION = "Reads prompts from a text file (one per line) and returns the one at index seed % line_count."
+    DESCRIPTION = "Reads prompts from a text file (one per line) and returns a random one (seeded by index) or, in sequential mode, the one at index % line_count."
 
     @classmethod
-    def IS_CHANGED(cls, file_path, seed):
+    def IS_CHANGED(cls, file_path, index, mode):
         return os.path.getmtime(file_path) if os.path.isfile(file_path) else ""
 
-    def get_random_prompt(self, file_path: str, seed: int):
+    def get_prompt(self, file_path: str, index: int, mode: str):
         if not os.path.isfile(file_path):
             raise FileNotFoundError(f"Prompt file not found: {file_path}")
         with open(file_path, 'r', encoding='utf-8') as f:
@@ -430,7 +432,9 @@ class Eden_RandomPromptFromFile:
         lines = [line for line in lines if line]
         if not lines:
             raise ValueError(f"No valid prompts found in file: {file_path}")
-        return (lines[seed % len(lines)],)
+        if mode == "random":
+            return (random.Random(index).choice(lines),)
+        return (lines[index % len(lines)],)
 
 
 class Eden_RandomFilepathSampler:
@@ -891,28 +895,31 @@ class Eden_AllMediaLoader:
 
 
 class Eden_Save_Param_Dict:
+    """
+    Rows are dynamic frontend inputs (js/eden_param_dict.js): a `value_N` socket plus a `key_N` text widget.
+    The sockets arrive as kwargs; the key widgets are not declared, so they are read from the prompt.
+    """
     def __init__(self):
         self.output_dir = folder_paths.get_output_directory()
 
     @classmethod
     def INPUT_TYPES(cls):
-        optional = {}
-        for i in range(1, 11):
-            optional[f"key_{i}"] = ("STRING", {"default": f"param{i}", "tooltip": f"JSON key for value_{i}. Empty = skip this pair."})
-            optional[f"value_{i}"] = (any_typ,)
         return {
             "required": {
-                "save_path": ("STRING", {"default": "params.json", "multiline": False, "tooltip": "File name (or subfolder/name) inside the output folder; a _00001 counter is appended. Supports %date:FORMAT%."}),
+                "save_path": ("STRING", {"default": "params.json", "multiline": False, "tooltip": "File name (or subfolder/name) inside the output folder; a _00001 counter is appended. Supports %date:FORMAT%. Unused when `params` feeds a Save Image Advanced (Eden) node, which writes the JSON next to each image instead."}),
             },
-            "optional": optional,
+            "hidden": {"prompt": "PROMPT", "unique_id": "UNIQUE_ID"},
         }
 
     FUNCTION = "make_dict"
-    RETURN_TYPES = ("STRING", "STRING")
-    RETURN_NAMES = ("saved_path", "json_string")
-    OUTPUT_TOOLTIPS = ("Full path of the saved JSON file.", "The JSON content.")
+    RETURN_TYPES = ("EDEN_PARAMS",)
+    RETURN_NAMES = ("params",)
+    OUTPUT_TOOLTIPS = ("The combined dict. Connect it to Save Image Advanced (Eden) to embed it in the PNG and save it as <image name>.json.",)
+    OUTPUT_NODE = True
     CATEGORY = "Eden 🌱/Loaders"
-    DESCRIPTION = "Collects up to 10 key/value inputs and saves them as a JSON file in the output directory."
+    DESCRIPTION = ("Stacks any number of inputs into one dict and saves it as JSON. A new input appears when you connect the last one. "
+                   "Per row: dicts (or JSON-object strings) merge into the top level; other values are stored under the row's key, "
+                   "or under the upstream output's name when the key is empty. A key on a dict row nests the dict under that key.")
 
     LIST_KEYWORDS = ("images", "files", "paths", "styles", "inputs", "sources")
 
@@ -957,25 +964,42 @@ class Eden_Save_Param_Dict:
             counter += 1
         return os.path.join(output_dir, f"{base_name}_{counter:05}{ext}")
 
-    def make_dict(self, save_path, **kwargs):
-        result_dict = {}
-        try:
-            for i in range(1, 11):
-                key = kwargs.get(f"key_{i}")
-                value = kwargs.get(f"value_{i}")
-                if key and value is not None:
-                    try:
-                        result_dict[key] = self._make_serializable(value, key)
-                    except Exception as e:
-                        logger.warning(f"Eden_Save_Param_Dict: error processing {key}: {e}")
-                        result_dict[key] = f"ERROR: {e}"
+    @staticmethod
+    def _source_name(prompt, link):
+        src_id, index = link
+        cls = NODE_CLASS_MAPPINGS[prompt[src_id]["class_type"]]
+        names = cls.RETURN_NAMES if getattr(cls, "RETURN_NAMES", None) else cls.RETURN_TYPES
+        return str(names[index])
 
+    def make_dict(self, save_path, prompt, unique_id, **kwargs):
+        node_inputs = prompt[unique_id]["inputs"]
+        rows = sorted((int(k[6:]), v) for k, v in kwargs.items() if k.startswith("value_") and k[6:].isdigit())
+
+        params = {}
+        for n, value in rows:
+            if value is None:
+                continue
+            if isinstance(value, str) and value.lstrip().startswith("{"):
+                try:
+                    value = json.loads(value)
+                except json.JSONDecodeError:
+                    pass
+            key = str(node_inputs.get(f"key_{n}", "")).strip()
+            if not key and isinstance(value, dict):
+                params.update(self._make_serializable(value))
+                continue
+            if not key:
+                base = key = self._source_name(prompt, node_inputs[f"value_{n}"])
+                i = 2
+                while key in params:
+                    key, i = f"{base}_{i}", i + 1
+            params[key] = self._make_serializable(value, key)
+
+        # A connected Eden image saver writes the JSON under the image's name, so skip the standalone file.
+        link = [unique_id, 0]
+        if not any(node["class_type"] == "Eden_SaveImageAdvanced" and node["inputs"].get("params") == link for node in prompt.values()):
             full_path = self._get_unique_filename(save_path)
-            json_string = json.dumps(result_dict, indent=2, ensure_ascii=False)
-            with open(full_path, 'w', encoding='utf-8') as f:
-                f.write(json_string)
+            with open(full_path, "w", encoding="utf-8") as f:
+                json.dump(params, f, indent=2, ensure_ascii=False)
             logger.info(f"Saved parameter dictionary to {full_path}")
-            return (full_path, json_string)
-        except Exception as e:
-            logger.error(f"Error in Eden_Save_Param_Dict: {e}")
-            return (f"ERROR: {e}", "{}")
+        return (params,)
