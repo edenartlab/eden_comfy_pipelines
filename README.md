@@ -210,7 +210,7 @@ The name in `code` is the node id stored in saved workflows.
 | **Prompt from Image Folder 🎲** `Eden_PromptFromImageFolder` | Recovers the prompt of a render in a folder |
 | **String Replace** `Eden_StringReplace` | Plain text replacement |
 | **Regex Replace** `Eden_Regex_Replace` | `re.sub` with a count and case sensitivity |
-| **String Hash** `Eden_StringHash` | Deterministic hash of a string |
+| **String Hash** `Eden_StringHash` | Deterministic hash of a string; `similar` mode gives similar strings the same leading characters |
 </details>
 
 <details>

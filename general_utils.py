@@ -192,24 +192,47 @@ class Eden_IntToFloat:
         return (float(a),)
 
 
+HASH_STOPWORDS = frozenset("a an and at by for from in is of on or the to with".split())
+HASH_WORD_ENDINGS = re.compile(r"(?<=\w{3})(?:ing|ed|e)?(?:es|(?<!s)s)?$")
+HASH_ALPHABET = "0123456789abcdefghijklmnopqrstuv"
+
+
+def similarity_hash(text, hash_length):
+    # Bottom-k sketch: each prefix char comes from one of the words with the lowest MD5, so char i
+    # only moves when an edit touches one of the i lowest words and early chars change the least.
+    suffix_length = min(4, hash_length // 2)
+    prefix_length = hash_length - suffix_length
+    words = {HASH_WORD_ENDINGS.sub("", word) for word in re.findall(r"\w+", text.lower()) if word not in HASH_STOPWORDS}
+    digests = sorted(hashlib.md5(word.encode('utf-8')).digest() for word in words)
+    # Sorted digests have biased leading bytes, so read the last one.
+    prefix = "".join(HASH_ALPHABET[digest[-1] % 32] for digest in digests[:prefix_length]).ljust(prefix_length, "0")
+    return prefix + hashlib.md5(text.encode('utf-8')).hexdigest()[:suffix_length]
+
+
 class Eden_StringHash:
     @classmethod
     def INPUT_TYPES(s):
         return {
             "required": {
                 "input_string": ("STRING", {"default": "", "multiline": True, "tooltip": "Text to hash."}),
-                "hash_length": ("INT", {"default": 8, "min": 4, "max": 64, "step": 1, "tooltip": "Length of the hex hash string (the int uses at most the first 8 bytes)."}),
+                "hash_length": ("INT", {"default": 12, "min": 4, "max": 64, "step": 1, "tooltip": "Length of the hex hash string (the int uses at most the first 8 bytes)."}),
+            },
+            "optional": {
+                "mode": (["exact", "similar"], {"default": "similar", "tooltip": "exact: any edit changes the whole hash. similar: similar text shares leading chars, so tweaked prompts sort together; the last 4 chars still change on any edit."}),
             }
         }
 
     RETURN_TYPES = ("INT", "STRING")
     RETURN_NAMES = ("hash_int", "hash_string")
-    OUTPUT_TOOLTIPS = ("Integer from the first min(8, hash_length) bytes of the MD5 digest.", "Hex MD5 digest truncated to hash_length.")
+    OUTPUT_TOOLTIPS = ("exact: integer from the first min(8, hash_length) bytes of the MD5 digest. similar: integer from the first 12 chars of hash_string.", "exact: hex MD5 digest truncated to hash_length. similar: word-based prefix (0-9, a-v) followed by an exact MD5 suffix.")
     FUNCTION = "generate_hash"
     CATEGORY = "Eden 🌱/Text"
-    DESCRIPTION = "Generates a deterministic MD5-based hash from an input string with configurable length."
+    DESCRIPTION = "Generates a deterministic hash from an input string with configurable length. In similar mode, similar strings share their leading characters."
 
-    def generate_hash(self, input_string: str, hash_length: int = 8):
+    def generate_hash(self, input_string: str, hash_length: int = 12, mode: str = "similar"):
+        if mode == "similar":
+            hash_string = similarity_hash(input_string, hash_length)
+            return (int(hash_string[:12], 32), hash_string)
         hasher = hashlib.md5(input_string.encode('utf-8'))
         hash_int = int.from_bytes(hasher.digest()[:min(8, hash_length)], byteorder='big')
         return (hash_int, hasher.hexdigest()[:hash_length])
